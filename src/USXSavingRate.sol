@@ -6,9 +6,12 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 
 contract USXSavingRate is Initializable, Ownable2StepUpgradeable {
     uint256 private constant RAY = 10 ** 27;
-    uint256 public usr;  // USX Savings Rate at the current period
+    int256 private constant MAX_USR = 10 ** 27;
+    int256 private constant MIN_USR = -1 * 10 ** 27;
+
+    int256 public usr;  // USX Savings Rate at the current period
     uint256 public rateAccumulator;  // Accumulated USX Savings Rate
-    uint256 public nextUsr;  // USX Savings Rate at the next period 
+    int256 public nextUsr;  // USX Savings Rate at the next period 
     uint256 public nextUsrTime;  // The time of the USX Savings Rate works on at the next period
     uint256 public lastAccumulatedTime;  // time of last drip
 
@@ -21,13 +24,13 @@ contract USXSavingRate is Initializable, Ownable2StepUpgradeable {
     function initialize() external initializer {
         __Ownable2Step_init();
 
-        usr = RAY;
         rateAccumulator = RAY;
         lastAccumulatedTime = block.timestamp;
     }
 
-    function _setNextUsr(uint256 _nextUsr, uint256 _nextUsrTime) external onlyOwner {
+    function _setNextUsr(int256 _nextUsr, uint256 _nextUsrTime) external onlyOwner {
         require(_nextUsrTime > block.timestamp, "Invalid next usr time!");
+        require(_nextUsr > MIN_USR && _nextUsr < MAX_USR, "Invalid next usr value!");
         accumulateUsr();
 
         nextUsr = _nextUsr;
@@ -69,14 +72,22 @@ contract USXSavingRate is Initializable, Ownable2StepUpgradeable {
     function accumulateUsr() public returns (uint256 _newUsr) {
         require(lastAccumulatedTime <= block.timestamp, "Invalid last accumulated time!");
 
-        if (block.timestamp < nextUsrTime || nextUsrTime == 0) {
-            _newUsr = _rmul(_rpow(usr, block.timestamp - lastAccumulatedTime, RAY), rateAccumulator);
+        if (lastAccumulatedTime == block.timestamp) {
+            _newUsr = rateAccumulator;
+            return _newUsr;
         } else {
-            _newUsr = _rmul(_rpow(usr, nextUsrTime - lastAccumulatedTime, RAY), rateAccumulator);
-            _newUsr = _rmul(_rpow(usr, block.timestamp - nextUsrTime, RAY), _newUsr);
-        }
+            // Always safe to cast to uint256 because usr is always between MIN_USR and MAX_USR
+            uint256 finalUSR = uint256(int256(RAY) + usr);
+            if (block.timestamp < nextUsrTime || nextUsrTime == 0) {
+                _newUsr = _rmul(_rpow(finalUSR, block.timestamp - lastAccumulatedTime, RAY), rateAccumulator);
+            } else {
+                _newUsr = _rmul(_rpow(finalUSR, nextUsrTime - lastAccumulatedTime, RAY), rateAccumulator);
+                finalUSR = uint256(int256(RAY) + nextUsr);
+                _newUsr = _rmul(_rpow(finalUSR, block.timestamp - nextUsrTime, RAY), _newUsr);
+            }
 
-        rateAccumulator = _newUsr;
-        lastAccumulatedTime = block.timestamp;
+            rateAccumulator = _newUsr;
+            lastAccumulatedTime = block.timestamp;
+        }
     }
 }
