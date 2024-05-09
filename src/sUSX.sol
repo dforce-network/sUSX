@@ -6,8 +6,19 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {SafeERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 
-contract sUSX is Initializable, Ownable2StepUpgradeable {
+interface IMSDController {
+    function mintMSD(address token, address usr, uint256 wad) external;
+}
+
+interface IMSD {
+    function balanceOf(address user) external view returns (uint256);
+    function mint(address to, uint256 amount) external;
+    function burn(address usr, uint256 wad) external;
+}
+
+contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     string public constant name = "USX Savings";
@@ -21,6 +32,10 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
     uint256 private constant RAY = 10 ** 27;
     address public usxSavingRate;
     address public usx;
+    address public msdController;
+    uint256 internal totalStaked;
+    uint256 internal totalUnstaked;
+    uint256 public mintCap;
 
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -32,11 +47,31 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
         _disableInitializers();
     }
 
-    function initialize(address _usxSavingRate, address _usx) external initializer {
+    function initialize(
+        address _usxSavingRate,
+        address _usx,
+        address _msdController,
+        uint256 _mintCap
+    ) external initializer {
         __Ownable2Step_init();
+        __Pausable_init();
 
         usxSavingRate = _usxSavingRate;
         usx = _usx;
+        msdController = _msdController;
+        mintCap = _mintCap;
+    }
+
+    function _setMintCap(uint256 _mintCap) external onlyOwner {
+        mintCap = _mintCap;
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     function _rpow(uint256 x, uint256 n) internal pure returns (uint256 z) {
@@ -140,9 +175,17 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
         return true;
     }
 
+    // TODO:
+    function totalMint() external view returns (uint256) {
+        return totalStaked;
+    }
+
     function _mint(uint256 _assets, uint256 _shares, address _receiver) internal {
         require(_receiver != address(0) && _receiver != address(this), "Invalid recipient address");
-        IERC20Upgradeable(usx).safeTransferFrom(msg.sender, address(this), _assets);
+
+        // TODO: fix
+        totalStaked = totalStaked + _assets;
+        IMSD(usx).burn(msg.sender, _assets);
 
         balanceOf[_receiver] = balanceOf[_receiver] + _shares;
         totalSupply = totalSupply + _shares;
@@ -166,8 +209,10 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
             balanceOf[_owner] = _spenderBalance - _shares;
             totalSupply = totalSupply - _shares;
         }
-        
-        IERC20Upgradeable(usx).safeTransfer(_receiver, _assets);
+
+        // TODO: fix
+        totalUnstaked = totalUnstaked + _assets;
+        IMSDController(msdController).mintMSD(usx, _receiver, _assets);
     }
 
     function asset() external view returns (address) {
@@ -203,7 +248,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
         return convertToShares(assets);
     }
 
-    function deposit(uint256 assets, address receiver) external returns (uint256 shares) {
+    function deposit(uint256 assets, address receiver) external whenNotPaused returns (uint256 shares) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         shares = assets * RAY / usrRateAccumulator;
         _mint(assets, shares, receiver);
@@ -222,7 +267,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
         return _divup(shares * rateAccumulator, RAY);
     }
 
-    function mint(uint256 shares, address receiver) external returns (uint256 assets){
+    function mint(uint256 shares, address receiver) external whenNotPaused returns (uint256 assets){
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         assets = _divup(shares * usrRateAccumulator, RAY);
         _mint(assets, shares, receiver);
@@ -240,7 +285,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
         return _divup(assets * RAY, rateAccumulator);
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares) {
+    function withdraw(uint256 assets, address receiver, address owner) external whenNotPaused returns (uint256 shares) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         shares = _divup(assets * RAY, usrRateAccumulator);
 
@@ -255,7 +300,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable {
         return convertToAssets(shares);
     }
 
-    function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets) {
+    function redeem(uint256 shares, address receiver, address owner) external whenNotPaused returns (uint256 assets) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         assets = shares * usrRateAccumulator / RAY;
 
