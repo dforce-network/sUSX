@@ -35,7 +35,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
     address public msdController;
     uint256 internal totalStaked;
     uint256 internal totalUnstaked;
-    uint256 public mintCap;
+    uint256 public mintCap; // Cap to mint sUSX
 
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -175,15 +175,17 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
         return true;
     }
 
-    // TODO:
     function totalMint() external view returns (uint256) {
-        return totalStaked;
+        if (totalUnstaked < totalStaked) {
+            return 0;
+        } else {
+            return totalUnstaked - totalStaked;
+        }
     }
 
     function _mint(uint256 _assets, uint256 _shares, address _receiver) internal {
         require(_receiver != address(0) && _receiver != address(this), "Invalid recipient address");
 
-        // TODO: fix
         totalStaked = totalStaked + _assets;
         IMSD(usx).burn(msg.sender, _assets);
 
@@ -210,7 +212,6 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
             totalSupply = totalSupply - _shares;
         }
 
-        // TODO: fix
         totalUnstaked = totalUnstaked + _assets;
         IMSDController(msdController).mintMSD(usx, _receiver, _assets);
     }
@@ -251,6 +252,8 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
     function deposit(uint256 assets, address receiver) external whenNotPaused returns (uint256 shares) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         shares = assets * RAY / usrRateAccumulator;
+
+        require(shares + totalSupply <= mintCap, "Exceeds mint cap!");
         _mint(assets, shares, receiver);
     }
 
@@ -268,6 +271,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
     }
 
     function mint(uint256 shares, address receiver) external whenNotPaused returns (uint256 assets){
+        require(shares + totalSupply <= mintCap, "Exceeds mint cap!");
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         assets = _divup(shares * usrRateAccumulator, RAY);
         _mint(assets, shares, receiver);
