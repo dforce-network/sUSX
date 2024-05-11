@@ -88,16 +88,8 @@ contract USXSavingRate is Initializable, Ownable2StepUpgradeable {
         if (lastAccumulatedTime == block.timestamp) {
             _newRateAccumulator = rateAccumulator;
         } else {
-            uint256 accumulatedEndTime = block.timestamp > usrExpiredTime ? usrExpiredTime : block.timestamp;
-            uint256 elapsedTime = accumulatedEndTime - lastAccumulatedTime;
-            if (block.timestamp < nextUsrWorkingTime || nextUsrWorkingTime == 0) {
-                _newRateAccumulator = _rmul(_rpow(usr, elapsedTime, RAY), rateAccumulator);
-            } else {
-                _newRateAccumulator = _rmul(_rpow(usr, elapsedTime, RAY), rateAccumulator);
-                accumulatedEndTime = block.timestamp > nextUsrExpiredTime ? nextUsrExpiredTime : block.timestamp;
-                elapsedTime = accumulatedEndTime - nextUsrWorkingTime;
-                _newRateAccumulator = _rmul(_rpow(nextUsr, elapsedTime, RAY), _newRateAccumulator);
-
+            _newRateAccumulator = _currentAccumulatedRateInternal();
+            if (block.timestamp >= nextUsrWorkingTime && nextUsrWorkingTime > 0) {
                 usr = nextUsr;
                 usrExpiredTime = nextUsrExpiredTime;
                 nextUsrWorkingTime = 0;
@@ -105,6 +97,25 @@ contract USXSavingRate is Initializable, Ownable2StepUpgradeable {
 
             rateAccumulator = _newRateAccumulator;
             lastAccumulatedTime = block.timestamp > usrExpiredTime ? usrExpiredTime : block.timestamp;
+        }
+    }
+
+    function _currentAccumulatedRateInternal() internal view returns (uint256 _newRateAccumulator) {
+        uint256 accumulatedEndTime = block.timestamp > usrExpiredTime ? usrExpiredTime : block.timestamp;
+        uint256 elapsedTime = accumulatedEndTime - lastAccumulatedTime;
+        if (block.timestamp < nextUsrWorkingTime || nextUsrWorkingTime == 0) {
+            _newRateAccumulator = _rmul(_rpow(usr, elapsedTime, RAY), rateAccumulator);
+        } else {
+            _newRateAccumulator = _rmul(_rpow(usr, elapsedTime, RAY), rateAccumulator);
+            accumulatedEndTime = block.timestamp > nextUsrExpiredTime ? nextUsrExpiredTime : block.timestamp;
+            elapsedTime = accumulatedEndTime - nextUsrWorkingTime;
+            _newRateAccumulator = _rmul(_rpow(nextUsr, elapsedTime, RAY), _newRateAccumulator);
+        }
+    }
+
+    function currentAccumulatedRate() external view returns (uint256 _newRateAccumulator) {
+        if (block.timestamp < usrExpiredTime || (nextUsrWorkingTime != 0 && block.timestamp >= nextUsrWorkingTime && block.timestamp < nextUsrExpiredTime)) {
+            _newRateAccumulator = _currentAccumulatedRateInternal();
         }
     }
 }
