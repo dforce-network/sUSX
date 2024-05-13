@@ -15,7 +15,7 @@ contract USXSavingRate is Initializable, Ownable2StepUpgradeable {
     uint256 public nextUsr;  // USX Savings Rate at the next period 
     uint256 public nextUsrWorkingTime;  // The time of the USX Savings Rate works at the next period
     uint256 public nextUsrExpiredTime;  // The time of the USX Savings Rate expired at the next period
-    uint256 public lastAccumulatedTime;  // time of last drip
+    uint256 public lastAccumulatedTime; // The time of the last accumulated USX Savings Rate
 
     mapping(address => uint256) public userSavingsUsx;  // User Savings USX
 
