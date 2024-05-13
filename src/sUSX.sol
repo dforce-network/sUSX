@@ -1,33 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
-import {IUSXSavingRate} from "./interface/IUSXSavingRate.sol";
+import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import {SafeERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-
-interface IMSDController {
-    function mintMSD(address token, address usr, uint256 wad) external;
-}
-
-interface IMSD {
-    function balanceOf(address user) external view returns (uint256);
-    function mint(address to, uint256 amount) external;
-    function burn(address usr, uint256 wad) external;
-}
+import {SafeERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import {IERC1271} from "./interface/IERC1271.sol";
+import {IMSD,IMSDController} from "./interface/IMSDMintable.sol";
+import {IUSXSavingRate} from "./interface/IUSXSavingRate.sol";
 
 contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     string public constant name = "USX Savings";
     string public constant symbol = "sUSX";
+    string public constant version  = "1";
     uint8 public constant decimals = 18;
     uint256 public totalSupply;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
+    mapping (address => uint256) public nonces;
 
     uint256 private constant RAY = 10 ** 27;
     address public usxSavingRate;
@@ -36,6 +30,11 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
     uint256 internal totalStaked;
     uint256 internal totalUnstaked;
     uint256 public mintCap; // Cap to mint sUSX
+
+    // EIP712
+    uint256 public deploymentChainId;
+    bytes32 private _DOMAIN_SEPARATOR;
+    bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Transfer(address indexed from, address indexed to, uint256 value);
@@ -60,6 +59,25 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
         usx = _usx;
         msdController = _msdController;
         mintCap = _mintCap;
+
+        deploymentChainId = block.chainid;
+        _DOMAIN_SEPARATOR = _calculateDomainSeparator(block.chainid);
+    }
+
+    function _calculateDomainSeparator(uint256 chainId) private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes(name)),
+                keccak256(bytes(version)),
+                chainId,
+                address(this)
+            )
+        );
+    }
+
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return block.chainid == deploymentChainId ? _DOMAIN_SEPARATOR : _calculateDomainSeparator(block.chainid);
     }
 
     function _setMintCap(uint256 _mintCap) external onlyOwner {
@@ -191,6 +209,8 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
 
         balanceOf[_receiver] = balanceOf[_receiver] + _shares;
         totalSupply = totalSupply + _shares;
+
+        emit Deposit(msg.sender, _receiver, _assets, _shares);
     }
 
     function _burn(uint256 _assets, uint256 _shares, address _receiver, address _owner) internal {
@@ -214,8 +234,11 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
 
         totalUnstaked = totalUnstaked + _assets;
         IMSDController(msdController).mintMSD(usx, _receiver, _assets);
+
+        emit Withdraw(msg.sender, _receiver, _owner, _assets, _shares);
     }
 
+    // ERC 4626
     function asset() external view returns (address) {
         return usx;
     }
@@ -226,23 +249,20 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
 
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        // Always safe to cast to uint256.
-        uint256 finalUSR = uint256(int256(RAY) + IUSXSavingRate(usxSavingRate).usr());
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(finalUSR, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
+        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
+        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
         return assets * RAY / rateAccumulator;
     }
 
     function convertToAssets(uint256 shares) public view returns (uint256) {
         uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        // Always safe to cast to uint256.
-        uint256 finalUSR = uint256(int256(RAY) + IUSXSavingRate(usxSavingRate).usr());
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(finalUSR, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
+        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
+        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
         return shares * rateAccumulator / RAY;
     }
 
-    // TODO:: Has cap
-    function maxDeposit(address) external pure returns (uint256) {
-        return type(uint256).max;
+    function maxDeposit(address) external view returns (uint256) {
+        return convertToAssets(mintCap - totalSupply);
     }
 
     function previewDeposit(uint256 assets) external view returns (uint256) {
@@ -257,16 +277,14 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
         _mint(assets, shares, receiver);
     }
 
-    // TODO:: Has cap
-    function maxMint(address) external pure returns (uint256) {
-        return type(uint256).max;
+    function maxMint(address) external view returns (uint256) {
+        return mintCap - totalSupply;
     }
 
     function previewMint(uint256 shares) external view returns (uint256) {
         uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        // Always safe to cast to uint256.
-        uint256 finalUSR = uint256(int256(RAY) + IUSXSavingRate(usxSavingRate).usr());
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(finalUSR, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
+        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
+        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
         return _divup(shares * rateAccumulator, RAY);
     }
 
@@ -283,9 +301,8 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
 
     function previewWithdraw(uint256 assets) external view returns (uint256) {
         uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        // Always safe to cast to uint256.
-        uint256 finalUSR = uint256(int256(RAY) + IUSXSavingRate(usxSavingRate).usr());
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(finalUSR, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
+        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
+        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
         return _divup(assets * RAY, rateAccumulator);
     }
 
@@ -309,5 +326,78 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
         assets = shares * usrRateAccumulator / RAY;
 
         _burn(assets, shares, receiver, owner);
+    }
+
+    // --- Approve by signature ---
+    function _isValidSignature(
+        address signer,
+        bytes32 digest,
+        bytes memory signature
+    ) internal view returns (bool) {
+        if (signature.length == 65) {
+            bytes32 r;
+            bytes32 s;
+            uint8 v;
+            assembly {
+                r := mload(add(signature, 0x20))
+                s := mload(add(signature, 0x40))
+                v := byte(0, mload(add(signature, 0x60)))
+            }
+            if (signer == ecrecover(digest, v, r, s)) {
+                return true;
+            }
+        }
+
+        (bool success, bytes memory result) = signer.staticcall(
+            abi.encodeWithSelector(IERC1271.isValidSignature.selector, digest, signature)
+        );
+        return (success &&
+            result.length == 32 &&
+            abi.decode(result, (bytes4)) == IERC1271.isValidSignature.selector);
+    }
+
+    function permit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        bytes memory signature
+    ) public {
+        require(block.timestamp <= deadline, "Permit expired!");
+        require(owner != address(0), "Invalid owner!");
+
+        uint256 nonce;
+        unchecked { nonce = nonces[owner]++; }
+
+        bytes32 digest =
+            keccak256(abi.encodePacked(
+                "\x19\x01",
+                block.chainid == deploymentChainId ? _DOMAIN_SEPARATOR : _calculateDomainSeparator(block.chainid),
+                keccak256(abi.encode(
+                    PERMIT_TYPEHASH,
+                    owner,
+                    spender,
+                    value,
+                    nonce,
+                    deadline
+                ))
+            ));
+
+        require(_isValidSignature(owner, digest, signature), "Invalid permit!");
+
+        allowance[owner][spender] = value;
+        emit Approval(owner, spender, value);
+    }
+
+    function permit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        permit(owner, spender, value, deadline, abi.encodePacked(r, s, v));
     }
 }
