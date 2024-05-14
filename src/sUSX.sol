@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
+import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {ERC4626Upgradeable,ERC20Upgradeable,MathUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
@@ -10,37 +12,16 @@ import {IERC1271} from "./interface/IERC1271.sol";
 import {IMSD,IMSDController} from "./interface/IMSDMintable.sol";
 import {IUSXSavingRate} from "./interface/IUSXSavingRate.sol";
 
-contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
-    using SafeERC20Upgradeable for IERC20Upgradeable;
-
-    string public constant name = "USX Savings";
-    string public constant symbol = "sUSX";
-    string public constant version  = "1";
-    uint8 public constant decimals = 18;
-    uint256 public totalSupply;
-
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-    mapping (address => uint256) public nonces;
+contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ERC20PermitUpgradeable, ERC4626Upgradeable {
+    using MathUpgradeable for uint256;
 
     uint256 private constant RAY = 10 ** 27;
+
     address public usxSavingRate;
-    address public usx;
     address public msdController;
     uint256 internal totalStaked;
     uint256 internal totalUnstaked;
     uint256 public mintCap; // Cap to mint sUSX
-
-    // EIP712
-    uint256 public deploymentChainId;
-    bytes32 private _DOMAIN_SEPARATOR;
-    bytes32 public constant PERMIT_TYPEHASH = keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
-
-    event Approval(address indexed owner, address indexed spender, uint256 value);
-    event Transfer(address indexed from, address indexed to, uint256 value);
-    event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares);
-    event Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
-
 
     constructor() {
         _disableInitializers();
@@ -48,40 +29,24 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
 
     function initialize(
         address _usxSavingRate,
-        address _usx,
+        IERC20Upgradeable _usx,
         address _msdController,
         uint256 _mintCap
     ) external initializer {
         __Ownable2Step_init();
         __Pausable_init();
+        __ERC20Permit_init("sUSX");
+        __ERC4626_init(_usx);
+        __ERC20_init("USX Savings", "sUSX");
 
         usxSavingRate = _usxSavingRate;
-        usx = _usx;
         msdController = _msdController;
         mintCap = _mintCap;
-
-        deploymentChainId = block.chainid;
-        _DOMAIN_SEPARATOR = _calculateDomainSeparator(block.chainid);
     }
 
-    function _calculateDomainSeparator(uint256 chainId) private view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256(bytes(name)),
-                keccak256(bytes(version)),
-                chainId,
-                address(this)
-            )
-        );
-    }
-
-    function DOMAIN_SEPARATOR() external view returns (bytes32) {
-        return block.chainid == deploymentChainId ? _DOMAIN_SEPARATOR : _calculateDomainSeparator(block.chainid);
-    }
-
-    function _setMintCap(uint256 _mintCap) external onlyOwner {
-        mintCap = _mintCap;
+    // _decimalsOffset is 0.
+    function decimals() public pure override(ERC4626Upgradeable, ERC20Upgradeable) returns (uint8) {
+        return 18;
     }
 
     function pause() external onlyOwner {
@@ -90,6 +55,18 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function _setMintCap(uint256 _mintCap) external onlyOwner {
+        mintCap = _mintCap;
+    }
+
+    function totalMint() external view returns (uint256) {
+        if (totalUnstaked < totalStaked) {
+            return 0;
+        } else {
+            return totalUnstaked - totalStaked;
+        }
     }
 
     function _rpow(uint256 x, uint256 n) internal pure returns (uint256 z) {
@@ -116,288 +93,92 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable {
         }
     }
 
-    function _divup(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        unchecked {
-            z = x != 0 ? ((x - 1) / y) + 1 : 0;
-        }
+    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
+        require(receiver != address(0) && receiver != address(this), "Invalid recipient address!");
+
+        totalStaked = totalStaked + assets;
+        IMSD(asset()).burn(caller, assets);
+
+        _mint(receiver, shares);
+
+        emit Deposit(caller, receiver, assets, shares);
     }
 
-    function transfer(address to, uint256 value) external returns (bool) {
-        require(to != address(0) && to != address(this), "Invalid recipient address!");
-        uint256 balance = balanceOf[msg.sender];
-        require(balance >= value, "Insufficient balance!");
-
-        unchecked {
-            balanceOf[msg.sender] = balance - value;
-            balanceOf[to] = balanceOf[to] + value;
-        }
-
-        emit Transfer(msg.sender, to, value);
-
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 value) external returns (bool) {
-        require(to != address(0) && to != address(this), "Invalid recipient address!");
-        uint256 balance = balanceOf[from];
-        require(balance >= value, "Insufficient balance!");
-
-        if (from != msg.sender) {
-            uint256 allowed = allowance[from][msg.sender];
-            if (allowed != type(uint256).max) {
-                require(allowed >= value, "Insufficient allowance!");
-
-                unchecked {
-                    allowance[from][msg.sender] = allowed - value;
-                }
-            }
+    function _withdraw(
+        address caller,
+        address receiver,
+        address owner,
+        uint256 assets,
+        uint256 shares
+    ) internal override {
+        if (caller != owner) {
+            _spendAllowance(owner, caller, shares);
         }
 
-        unchecked {
-            balanceOf[from] = balance - value;
-            balanceOf[to] = balanceOf[to] + value;
-        }
+        _burn(owner, shares);
+        totalUnstaked = totalUnstaked + assets;
+        IMSDController(msdController).mintMSD(asset(), receiver, assets);
 
-        emit Transfer(from, to, value);
-
-        return true;
+        emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
-    function approve(address spender, uint256 value) external returns (bool) {
-        allowance[msg.sender][spender] = value;
-
-        emit Approval(msg.sender, spender, value);
-
-        return true;
+    function totalAssets() public view override returns (uint256) {
+        return convertToAssets(totalSupply());
     }
 
-    function increaseAllowance(address spender, uint256 addedValue) external returns (bool) {
-        uint256 newValue = allowance[msg.sender][spender] + addedValue;
-        allowance[msg.sender][spender] = newValue;
-
-        emit Approval(msg.sender, spender, newValue);
-
-        return true;
-    }
-
-    function decreaseAllowance(address spender, uint256 subtractedValue) external returns (bool) {
-        uint256 allowed = allowance[msg.sender][spender];
-        require(allowed >= subtractedValue, "Insufficient allowance!");
-        unchecked{
-            allowed = allowed - subtractedValue;
-        }
-        allowance[msg.sender][spender] = allowed;
-
-        emit Approval(msg.sender, spender, allowed);
-
-        return true;
-    }
-
-    function totalMint() external view returns (uint256) {
-        if (totalUnstaked < totalStaked) {
-            return 0;
-        } else {
-            return totalUnstaked - totalStaked;
-        }
-    }
-
-    function _mint(uint256 _assets, uint256 _shares, address _receiver) internal {
-        require(_receiver != address(0) && _receiver != address(this), "Invalid recipient address");
-
-        totalStaked = totalStaked + _assets;
-        IMSD(usx).burn(msg.sender, _assets);
-
-        balanceOf[_receiver] = balanceOf[_receiver] + _shares;
-        totalSupply = totalSupply + _shares;
-
-        emit Deposit(msg.sender, _receiver, _assets, _shares);
-    }
-
-    function _burn(uint256 _assets, uint256 _shares, address _receiver, address _owner) internal {
-        uint256 _spenderBalance = balanceOf[_owner];
-        require(_spenderBalance > _shares, "Spender has insufficient balance!");
-
-        if (_owner != msg.sender) {
-            uint256 _allowance = allowance[_owner][msg.sender];
-            if (_allowance != type(uint256).max) {
-                require(_allowance >= _shares, "Insufficient allowance!");
-                unchecked {
-                    allowance[_owner][msg.sender] = _allowance - _shares;
-                }
-            }
-        }
-
-        unchecked {
-            balanceOf[_owner] = _spenderBalance - _shares;
-            totalSupply = totalSupply - _shares;
-        }
-
-        totalUnstaked = totalUnstaked + _assets;
-        IMSDController(msdController).mintMSD(usx, _receiver, _assets);
-
-        emit Withdraw(msg.sender, _receiver, _owner, _assets, _shares);
-    }
-
-    // ERC 4626
-    function asset() external view returns (address) {
-        return usx;
-    }
-
-    function totalAssets() external view returns (uint256) {
-        return convertToAssets(totalSupply);
-    }
-
-    function convertToShares(uint256 assets) public view returns (uint256) {
+    function _convertToAssets(uint256 shares, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
         uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
         uint256 usr = IUSXSavingRate(usxSavingRate).usr();
         uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
-        return assets * RAY / rateAccumulator;
+        return shares.mulDiv(rateAccumulator, RAY, rounding);
     }
 
-    function convertToAssets(uint256 shares) public view returns (uint256) {
+    function _convertToShares(uint256 assets, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
         uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
         uint256 usr = IUSXSavingRate(usxSavingRate).usr();
         uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
-        return shares * rateAccumulator / RAY;
+        return assets.mulDiv(RAY, rateAccumulator, rounding);
     }
 
-    function maxDeposit(address) external view returns (uint256) {
-        return convertToAssets(mintCap - totalSupply);
+    function maxDeposit(address) public view override returns (uint256) {
+        return _convertToAssets(mintCap - totalSupply(), MathUpgradeable.Rounding.Down);
     }
 
-    function previewDeposit(uint256 assets) external view returns (uint256) {
-        return convertToShares(assets);
+    function maxMint(address) public view override returns (uint256) {
+        return mintCap - totalSupply();
     }
 
-    function deposit(uint256 assets, address receiver) external whenNotPaused returns (uint256 shares) {
+    function deposit(uint256 assets, address receiver) public whenNotPaused override returns (uint256 shares) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
         shares = assets * RAY / usrRateAccumulator;
 
-        require(shares + totalSupply <= mintCap, "Exceeds mint cap!");
-        _mint(assets, shares, receiver);
+        require(shares + totalSupply() <= mintCap, "Exceeds mint cap!");
+        _deposit(_msgSender(), receiver, assets, shares);
     }
 
-    function maxMint(address) external view returns (uint256) {
-        return mintCap - totalSupply;
-    }
+    function mint(uint256 shares, address receiver) public whenNotPaused override returns (uint256 assets){
+        require(shares <= maxMint(receiver), "Exceeds mint cap!");
 
-    function previewMint(uint256 shares) external view returns (uint256) {
-        uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
-        return _divup(shares * rateAccumulator, RAY);
-    }
-
-    function mint(uint256 shares, address receiver) external whenNotPaused returns (uint256 assets){
-        require(shares + totalSupply <= mintCap, "Exceeds mint cap!");
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
-        assets = _divup(shares * usrRateAccumulator, RAY);
-        _mint(assets, shares, receiver);
+        assets = shares.mulDiv(usrRateAccumulator, RAY, MathUpgradeable.Rounding.Up);
+        _deposit(_msgSender(), receiver, assets, shares);
     }
 
-    function maxWithdraw(address owner) external view returns (uint256) {
-        return convertToAssets(balanceOf[owner]);
-    }
+    function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused override returns (uint256 shares) {
+        require(assets <= maxWithdraw(owner), "Withdraw more than max");
 
-    function previewWithdraw(uint256 assets) external view returns (uint256) {
-        uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
-        return _divup(assets * RAY, rateAccumulator);
-    }
-
-    function withdraw(uint256 assets, address receiver, address owner) external whenNotPaused returns (uint256 shares) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
-        shares = _divup(assets * RAY, usrRateAccumulator);
+        shares = assets.mulDiv(RAY, usrRateAccumulator, MathUpgradeable.Rounding.Up);
 
-        _burn(assets, shares, receiver, owner);
+        _withdraw(_msgSender(), receiver, owner, assets, shares);
     }
 
-    function maxRedeem(address owner) external view returns (uint256) {
-        return balanceOf[owner];
-    }
+    function redeem(uint256 shares, address receiver, address owner) public whenNotPaused override returns (uint256 assets) {
+        require(shares <= maxRedeem(owner), "Redeem more than max");
 
-    function previewRedeem(uint256 shares) external view returns (uint256) {
-        return convertToAssets(shares);
-    }
-
-    function redeem(uint256 shares, address receiver, address owner) external whenNotPaused returns (uint256 assets) {
         uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
-        assets = shares * usrRateAccumulator / RAY;
+        assets = shares.mulDiv(usrRateAccumulator, RAY, MathUpgradeable.Rounding.Down);
 
-        _burn(assets, shares, receiver, owner);
-    }
-
-    // --- Approve by signature ---
-    function _isValidSignature(
-        address signer,
-        bytes32 digest,
-        bytes memory signature
-    ) internal view returns (bool) {
-        if (signature.length == 65) {
-            bytes32 r;
-            bytes32 s;
-            uint8 v;
-            assembly {
-                r := mload(add(signature, 0x20))
-                s := mload(add(signature, 0x40))
-                v := byte(0, mload(add(signature, 0x60)))
-            }
-            if (signer == ecrecover(digest, v, r, s)) {
-                return true;
-            }
-        }
-
-        (bool success, bytes memory result) = signer.staticcall(
-            abi.encodeWithSelector(IERC1271.isValidSignature.selector, digest, signature)
-        );
-        return (success &&
-            result.length == 32 &&
-            abi.decode(result, (bytes4)) == IERC1271.isValidSignature.selector);
-    }
-
-    function permit(
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 deadline,
-        bytes memory signature
-    ) public {
-        require(block.timestamp <= deadline, "Permit expired!");
-        require(owner != address(0), "Invalid owner!");
-
-        uint256 nonce;
-        unchecked { nonce = nonces[owner]++; }
-
-        bytes32 digest =
-            keccak256(abi.encodePacked(
-                "\x19\x01",
-                block.chainid == deploymentChainId ? _DOMAIN_SEPARATOR : _calculateDomainSeparator(block.chainid),
-                keccak256(abi.encode(
-                    PERMIT_TYPEHASH,
-                    owner,
-                    spender,
-                    value,
-                    nonce,
-                    deadline
-                ))
-            ));
-
-        require(_isValidSignature(owner, digest, signature), "Invalid permit!");
-
-        allowance[owner][spender] = value;
-        emit Approval(owner, spender, value);
-    }
-
-    function permit(
-        address owner,
-        address spender,
-        uint256 value,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external {
-        permit(owner, spender, value, deadline, abi.encodePacked(r, s, v));
+        _withdraw(_msgSender(), receiver, owner, assets, shares);
     }
 }
