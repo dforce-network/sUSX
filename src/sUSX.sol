@@ -10,7 +10,6 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/
 import {SafeERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {IERC1271} from "./interface/IERC1271.sol";
 import {IMSD,IMSDController} from "./interface/IMSDMintable.sol";
-import {IUSXSavingRate} from "./interface/IUSXSavingRate.sol";
 
 contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ERC20PermitUpgradeable, ERC4626Upgradeable {
     using MathUpgradeable for uint256;
@@ -19,7 +18,6 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     uint256 private constant MAX_USR = 2 * 10 ** 27;
     uint256 private constant MIN_USR = 0;
 
-    address public usxSavingRate;
     address public msdController;
     uint256 internal totalStaked;
     uint256 internal totalUnstaked;
@@ -49,7 +47,6 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function initialize(
-        address _usxSavingRate,
         IERC20Upgradeable _usx,
         address _msdController,
         uint256 _mintCap,
@@ -68,7 +65,6 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         __ERC20_init("USX Savings", "sUSX");
 
         accumulatedRate = RAY;
-        usxSavingRate = _usxSavingRate;
         msdController = _msdController;
         mintCap = _mintCap;
         usrDetails.push(UsrDetail({
