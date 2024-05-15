@@ -16,12 +16,22 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     using MathUpgradeable for uint256;
 
     uint256 private constant RAY = 10 ** 27;
+    uint256 private constant MAX_USR = 2 * 10 ** 27;
+    uint256 private constant MIN_USR = 0;
 
     address public usxSavingRate;
     address public msdController;
     uint256 internal totalStaked;
     uint256 internal totalUnstaked;
     uint256 public mintCap; // Cap to mint sUSX
+
+    struct UsrDetail {
+        uint256 startTime;
+        uint256 endTime;
+        uint256 usr;
+    }
+
+    UsrDetail[] public usrDetails;
 
     constructor() {
         _disableInitializers();
@@ -31,8 +41,15 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         address _usxSavingRate,
         IERC20Upgradeable _usx,
         address _msdController,
-        uint256 _mintCap
+        uint256 _mintCap,
+        uint256 _initialUsrStartTime,
+        uint256 _initialUsrEndTime,
+        uint256 _initialUsr
     ) external initializer {
+        require(_initialUsrStartTime >= block.timestamp, "Invalid usr start time!");
+        require(_initialUsrEndTime > block.timestamp, "Invalid usr end time!");
+        require(_initialUsr > MIN_USR && _initialUsr < MAX_USR, "Invalid usr value!");
+        
         __Ownable2Step_init();
         __Pausable_init();
         __ERC20Permit_init("sUSX");
@@ -42,6 +59,11 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         usxSavingRate = _usxSavingRate;
         msdController = _msdController;
         mintCap = _mintCap;
+        usrDetails.push(UsrDetail({
+            startTime: _initialUsrStartTime,
+            endTime: _initialUsrEndTime,
+            usr: _initialUsr
+        }));
     }
 
     // _decimalsOffset is 0.
@@ -59,6 +81,87 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
 
     function _setMintCap(uint256 _mintCap) external onlyOwner {
         mintCap = _mintCap;
+    }
+
+    function _setNewtUsr(
+        uint256 _newUsrStartTime,
+        uint256 _newUsrEndTime,
+        uint256 _newUsr
+    ) external onlyOwner {
+        require(_newUsrStartTime >= block.timestamp, "Invalid new usr start time!");
+        require(_newUsrEndTime > block.timestamp, "Invalid new usr end time!");
+        require(_newUsr > MIN_USR && _newUsr < MAX_USR, "Invalid new usr value!");
+
+        uint256 _length = usrDetails.length;
+        // Length always is greater than 1.
+        if (usrDetails[_length - 1].endTime > _newUsrStartTime) {
+            usrDetails[_length - 1].endTime = _newUsrStartTime;
+        }
+
+        usrDetails.push(UsrDetail({
+            startTime: _newUsrStartTime,
+            endTime: _newUsrEndTime,
+            usr: _newUsr
+        }));
+    }
+
+    function _rpow(uint256 x, uint256 n, uint256 base) internal pure returns (uint256 z) {
+        assembly {
+            switch x case 0 {switch n case 0 {z := base} default {z := 0}}
+            default {
+                switch mod(n, 2) case 0 { z := base } default { z := x }
+                let half := div(base, 2)  // for rounding.
+                for { n := div(n, 2) } n { n := div(n,2) } {
+                    let xx := mul(x, x)
+                    if iszero(eq(div(xx, x), x)) { revert(0,0) }
+                    let xxRound := add(xx, half)
+                    if lt(xxRound, xx) { revert(0,0) }
+                    x := div(xxRound, base)
+                    if mod(n,2) {
+                        let zx := mul(z, x)
+                        if and(iszero(iszero(x)), iszero(eq(div(zx, x), z))) { revert(0,0) }
+                        let zxRound := add(zx, half)
+                        if lt(zxRound, zx) { revert(0,0) }
+                        z := div(zxRound, base)
+                    }
+                }
+            }
+        }
+    }
+
+    function _rmul(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        z = _mul(x, y) / RAY;
+    }
+
+    function _mul(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        require(y == 0 || (z = x * y) / y == x);
+    }
+
+    function _currentAccumulatedRateInternal() internal view returns (uint256 _rateAccumulator) {
+        uint256 length = usrDetails.length;
+
+        _rateAccumulator = RAY;
+        for (uint256 i; i < length; ) {
+            UsrDetail memory currentUsr = usrDetails[i];
+
+            if (block.timestamp > currentUsr.startTime) {
+                uint256 accumulatedEndTime = block.timestamp > currentUsr.endTime ? currentUsr.endTime : block.timestamp;
+                uint256 elapsedTime = accumulatedEndTime - currentUsr.startTime;
+
+                _rateAccumulator = _rmul(_rpow(currentUsr.usr, elapsedTime, RAY), _rateAccumulator);
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function currentAccumulatedRate() external view returns (uint256 _rateAccumulator) {
+        if (block.timestamp > usrDetails[usrDetails.length - 1].startTime &&
+            block.timestamp < usrDetails[usrDetails.length - 1].endTime) {
+            _rateAccumulator = _currentAccumulatedRateInternal();
+        }
     }
 
     function totalMint() external view returns (uint256) {
@@ -127,16 +230,12 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function _convertToAssets(uint256 shares, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
-        uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
+        uint256 rateAccumulator = _currentAccumulatedRateInternal();
         return shares.mulDiv(rateAccumulator, RAY, rounding);
     }
 
     function _convertToShares(uint256 assets, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
-        uint256 lastAccumulatedTime = IUSXSavingRate(usxSavingRate).lastAccumulatedTime();
-        uint256 usr = IUSXSavingRate(usxSavingRate).usr();
-        uint256 rateAccumulator = (block.timestamp > lastAccumulatedTime) ? _rpow(usr, block.timestamp - lastAccumulatedTime) * IUSXSavingRate(usxSavingRate).rateAccumulator() / RAY : IUSXSavingRate(usxSavingRate).rateAccumulator();
+        uint256 rateAccumulator = _currentAccumulatedRateInternal();
         return assets.mulDiv(RAY, rateAccumulator, rounding);
     }
 
@@ -149,7 +248,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function deposit(uint256 assets, address receiver) public whenNotPaused override returns (uint256 shares) {
-        uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
+        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
         shares = assets * RAY / usrRateAccumulator;
 
         require(shares + totalSupply() <= mintCap, "Exceeds mint cap!");
@@ -159,7 +258,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     function mint(uint256 shares, address receiver) public whenNotPaused override returns (uint256 assets){
         require(shares <= maxMint(receiver), "Exceeds mint cap!");
 
-        uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
+        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
         assets = shares.mulDiv(usrRateAccumulator, RAY, MathUpgradeable.Rounding.Up);
         _deposit(_msgSender(), receiver, assets, shares);
     }
@@ -167,7 +266,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused override returns (uint256 shares) {
         require(assets <= maxWithdraw(owner), "Withdraw more than max");
 
-        uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
+        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
         shares = assets.mulDiv(RAY, usrRateAccumulator, MathUpgradeable.Rounding.Up);
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
@@ -176,7 +275,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     function redeem(uint256 shares, address receiver, address owner) public whenNotPaused override returns (uint256 assets) {
         require(shares <= maxRedeem(owner), "Redeem more than max");
 
-        uint256 usrRateAccumulator = IUSXSavingRate(usxSavingRate).accumulateUsr();
+        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
         assets = shares.mulDiv(usrRateAccumulator, RAY, MathUpgradeable.Rounding.Down);
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
