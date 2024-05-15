@@ -25,6 +25,8 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     uint256 internal totalUnstaked;
     uint256 public mintCap; // Cap to mint sUSX
 
+    uint256 public accumulatedRate;
+
     struct UsrDetail {
         uint256 startTime;
         uint256 endTime;
@@ -32,6 +34,15 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     UsrDetail[] public usrDetails;
+
+    modifier updateRate() {
+        uint256 length = usrDetails.length;
+
+        if (block.timestamp > usrDetails[length - 1].endTime) {
+            accumulatedRate = _currentAccumulatedRateInternal();
+        }
+        _;
+    }
 
     constructor() {
         _disableInitializers();
@@ -56,6 +67,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         __ERC4626_init(_usx);
         __ERC20_init("USX Savings", "sUSX");
 
+        accumulatedRate = RAY;
         usxSavingRate = _usxSavingRate;
         msdController = _msdController;
         mintCap = _mintCap;
@@ -83,11 +95,11 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         mintCap = _mintCap;
     }
 
-    function _setNewtUsr(
+    function _setNewUsr(
         uint256 _newUsrStartTime,
         uint256 _newUsrEndTime,
         uint256 _newUsr
-    ) external onlyOwner {
+    ) external onlyOwner updateRate {
         require(_newUsrStartTime >= block.timestamp, "Invalid new usr start time!");
         require(_newUsrEndTime > block.timestamp, "Invalid new usr end time!");
         require(_newUsr > MIN_USR && _newUsr < MAX_USR, "Invalid new usr value!");
@@ -140,27 +152,36 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     function _currentAccumulatedRateInternal() internal view returns (uint256 _rateAccumulator) {
         uint256 length = usrDetails.length;
 
-        _rateAccumulator = RAY;
-        for (uint256 i; i < length; ) {
-            UsrDetail memory currentUsr = usrDetails[i];
+        if (length == 1) {
+            UsrDetail memory initialUsr = usrDetails[0];
+            uint256 accumulatedEndTime = block.timestamp > initialUsr.endTime ? initialUsr.endTime : block.timestamp;
+            uint256 elapsedTime = accumulatedEndTime - initialUsr.startTime;
 
-            if (block.timestamp > currentUsr.startTime) {
-                uint256 accumulatedEndTime = block.timestamp > currentUsr.endTime ? currentUsr.endTime : block.timestamp;
-                uint256 elapsedTime = accumulatedEndTime - currentUsr.startTime;
+            _rateAccumulator = _rmul(_rpow(initialUsr.usr, elapsedTime, RAY), accumulatedRate);
+        } else {
+            UsrDetail memory newestUsr = usrDetails[length - 1];
+            UsrDetail memory newerUsr = usrDetails[length - 2];
 
-                _rateAccumulator = _rmul(_rpow(currentUsr.usr, elapsedTime, RAY), _rateAccumulator);
-            }
+            uint256 accumulatedEndTime = block.timestamp > newerUsr.endTime ? newerUsr.endTime : block.timestamp;
+            uint256 elapsedTime = accumulatedEndTime - newerUsr.startTime;
+            _rateAccumulator = _rmul(_rpow(newerUsr.usr, elapsedTime, RAY), accumulatedRate);
 
-            unchecked {
-                ++i;
+            if (block.timestamp > newestUsr.startTime) {
+                accumulatedEndTime = block.timestamp > newestUsr.endTime ? newestUsr.endTime : block.timestamp;
+                elapsedTime = accumulatedEndTime - newestUsr.startTime;
+                _rateAccumulator = _rmul(_rpow(newestUsr.usr, elapsedTime, RAY), _rateAccumulator);
             }
         }
     }
 
     function currentAccumulatedRate() external view returns (uint256 _rateAccumulator) {
+        _rateAccumulator = _currentAccumulatedRateInternal();
+    }
+
+    function currentInterestRate() external view returns (uint256 _interestRate) {
         if (block.timestamp > usrDetails[usrDetails.length - 1].startTime &&
             block.timestamp < usrDetails[usrDetails.length - 1].endTime) {
-            _rateAccumulator = _currentAccumulatedRateInternal();
+            _interestRate = usrDetails[usrDetails.length - 1].usr;
         }
     }
 
@@ -247,7 +268,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         return mintCap - totalSupply();
     }
 
-    function deposit(uint256 assets, address receiver) public whenNotPaused override returns (uint256 shares) {
+    function deposit(uint256 assets, address receiver) public whenNotPaused updateRate override returns (uint256 shares) {
         uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
         shares = assets * RAY / usrRateAccumulator;
 
@@ -255,7 +276,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         _deposit(_msgSender(), receiver, assets, shares);
     }
 
-    function mint(uint256 shares, address receiver) public whenNotPaused override returns (uint256 assets){
+    function mint(uint256 shares, address receiver) public whenNotPaused updateRate override returns (uint256 assets){
         require(shares <= maxMint(receiver), "Exceeds mint cap!");
 
         uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
@@ -263,7 +284,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         _deposit(_msgSender(), receiver, assets, shares);
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused override returns (uint256 shares) {
+    function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused updateRate override returns (uint256 shares) {
         require(assets <= maxWithdraw(owner), "Withdraw more than max");
 
         uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
@@ -272,7 +293,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         _withdraw(_msgSender(), receiver, owner, assets, shares);
     }
 
-    function redeem(uint256 shares, address receiver, address owner) public whenNotPaused override returns (uint256 assets) {
+    function redeem(uint256 shares, address receiver, address owner) public whenNotPaused updateRate override returns (uint256 assets) {
         require(shares <= maxRedeem(owner), "Redeem more than max");
 
         uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
