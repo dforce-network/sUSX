@@ -174,10 +174,19 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         _rateAccumulator = _currentAccumulatedRateInternal();
     }
 
-    function currentInterestRate() external view returns (uint256 _interestRate) {
+    function currentInterestRate() public view returns (uint256 _interestRate, uint256 _startTime, uint256 _endTime) {
         if (block.timestamp > usrDetails[usrDetails.length - 1].startTime &&
-            block.timestamp < usrDetails[usrDetails.length - 1].endTime) {
+            block.timestamp < usrDetails[usrDetails.length - 1].endTime
+        ) {
             _interestRate = usrDetails[usrDetails.length - 1].usr;
+            _startTime = usrDetails[usrDetails.length - 1].startTime;
+            _endTime = usrDetails[usrDetails.length - 1].endTime;
+        } else if (block.timestamp > usrDetails[usrDetails.length - 2].startTime &&
+            block.timestamp < usrDetails[usrDetails.length - 2].endTime
+        ) {
+            _interestRate = usrDetails[usrDetails.length - 2].usr;
+            _startTime = usrDetails[usrDetails.length - 2].startTime;
+            _endTime = usrDetails[usrDetails.length - 2].endTime;
         }
     }
 
@@ -300,5 +309,27 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
 
     function usrConfigsLength() external view returns (uint256) {
         return usrDetails.length;
+    }
+
+    function currentAPY() external view returns (uint256 apy, uint256 startTime, uint256 endTime) {
+        uint256 secondsPerYear = 365 * 24 * 60 * 60;
+        uint256 interestRate;
+        (interestRate, startTime, endTime) = currentInterestRate();
+
+        apy = _rpow(interestRate, secondsPerYear, RAY);
+    }
+
+    function nextAPY() external view returns (uint256 apy, uint256 startTime, uint256 endTime) {
+        uint256 secondsPerYear = 365 * 24 * 60 * 60;
+        uint256 length = usrDetails.length;
+
+        if (length > 1) {
+            UsrDetail memory newestUsr = usrDetails[length - 1];
+            if (block.timestamp < newestUsr.startTime) {
+                apy = _rpow(newestUsr.usr, secondsPerYear, RAY);
+                startTime = newestUsr.startTime;
+                endTime = newestUsr.endTime;
+            }
+        }
     }
 }
