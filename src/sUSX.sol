@@ -297,4 +297,8 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
     }
+
+    function usrConfigsLength() external view returns (uint256) {
+        return usrDetails.length;
+    }
 }
