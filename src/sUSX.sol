@@ -175,18 +175,20 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function currentInterestRate() public view returns (uint256 _interestRate, uint256 _startTime, uint256 _endTime) {
-        if (block.timestamp > usrDetails[usrDetails.length - 1].startTime &&
-            block.timestamp < usrDetails[usrDetails.length - 1].endTime
+        uint256 length = usrDetails.length;
+        if (block.timestamp > usrDetails[length - 1].startTime &&
+            block.timestamp < usrDetails[length - 1].endTime
         ) {
-            _interestRate = usrDetails[usrDetails.length - 1].usr;
-            _startTime = usrDetails[usrDetails.length - 1].startTime;
-            _endTime = usrDetails[usrDetails.length - 1].endTime;
-        } else if (block.timestamp > usrDetails[usrDetails.length - 2].startTime &&
-            block.timestamp < usrDetails[usrDetails.length - 2].endTime
+            _interestRate = usrDetails[length - 1].usr;
+            _startTime = usrDetails[length - 1].startTime;
+            _endTime = usrDetails[length - 1].endTime;
+        } else if (length > 1 &&
+            block.timestamp > usrDetails[length - 2].startTime &&
+            block.timestamp < usrDetails[length - 2].endTime
         ) {
-            _interestRate = usrDetails[usrDetails.length - 2].usr;
-            _startTime = usrDetails[usrDetails.length - 2].startTime;
-            _endTime = usrDetails[usrDetails.length - 2].endTime;
+            _interestRate = usrDetails[length - 2].usr;
+            _startTime = usrDetails[length - 2].startTime;
+            _endTime = usrDetails[length - 2].endTime;
         }
     }
 
