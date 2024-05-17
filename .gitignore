@@ -19,6 +19,7 @@ _metadata
 cache
 artifacts
 docs
+typechain-types/
 
 # foundry
 forge-cache/
