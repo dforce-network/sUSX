@@ -80,7 +80,17 @@ export async function deploy(
 
     return contract;
   } else {
-    return await deploy(instanceName, options);
+    let contract = await deploy(instanceName, options);
+    if (initFunction && initArgs) {
+      await execute(
+        instanceName,
+        {from: deployer, log: true},
+        initFunction,
+        ...initArgs
+      );
+    }
+
+    return contract;
   }
 }
 
