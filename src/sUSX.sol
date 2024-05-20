@@ -157,7 +157,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         if (length == 1) {
             UsrDetail memory initialUsr = usrDetails[0];
             uint256 accumulatedEndTime = block.timestamp > initialUsr.endTime ? initialUsr.endTime : block.timestamp;
-            uint256 elapsedTime = accumulatedEndTime - initialUsr.startTime;
+            uint256 elapsedTime = accumulatedEndTime > initialUsr.startTime ? accumulatedEndTime - initialUsr.startTime : 0;
 
             _rateAccumulator = _rmul(_rpow(initialUsr.usr, elapsedTime, RAY), accumulatedRate);
         } else {
