@@ -42,8 +42,15 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         _;
     }
 
-    constructor() {
-        _disableInitializers();
+    constructor(
+        IERC20Upgradeable _usx,
+        address _msdController,
+        uint256 _mintCap,
+        uint256 _initialUsrStartTime,
+        uint256 _initialUsrEndTime,
+        uint256 _initialUsr
+    ) {
+        initialize(_usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr);
     }
 
     function initialize(
@@ -53,7 +60,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         uint256 _initialUsrStartTime,
         uint256 _initialUsrEndTime,
         uint256 _initialUsr
-    ) external initializer {
+    ) public initializer {
         require(_initialUsrStartTime >= block.timestamp, "Invalid usr start time!");
         require(_initialUsrEndTime > block.timestamp, "Invalid usr end time!");
         require(_initialUsr > MIN_USR && _initialUsr < MAX_USR, "Invalid usr value!");
@@ -74,7 +81,6 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         }));
     }
 
-    // _decimalsOffset is 0.
     function decimals() public pure override(ERC4626Upgradeable, ERC20Upgradeable) returns (uint8) {
         return 18;
     }
@@ -197,30 +203,6 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
             return 0;
         } else {
             return totalUnstaked - totalStaked;
-        }
-    }
-
-    function _rpow(uint256 x, uint256 n) internal pure returns (uint256 z) {
-        assembly {
-            switch x case 0 {switch n case 0 {z := RAY} default {z := 0}}
-            default {
-                switch mod(n, 2) case 0 { z := RAY } default { z := x }
-                let half := div(RAY, 2)  // for rounding.
-                for { n := div(n, 2) } n { n := div(n,2) } {
-                    let xx := mul(x, x)
-                    if iszero(eq(div(xx, x), x)) { revert(0,0) }
-                    let xxRound := add(xx, half)
-                    if lt(xxRound, xx) { revert(0,0) }
-                    x := div(xxRound, RAY)
-                    if mod(n,2) {
-                        let zx := mul(z, x)
-                        if and(iszero(iszero(x)), iszero(eq(div(zx, x), z))) { revert(0,0) }
-                        let zxRound := add(zx, half)
-                        if lt(zxRound, zx) { revert(0,0) }
-                        z := div(zxRound, RAY)
-                    }
-                }
-            }
         }
     }
 
