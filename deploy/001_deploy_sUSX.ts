@@ -11,8 +11,8 @@ const deployFunction: DeployFunction = async function (
 	let usx;
 	let msdController;
   let mintCap = ethers.utils.parseEther("10000"); // sUSX
-  let startTime = (Date.now() / 1000).toFixed() + 300; // delay 5 minutes
-  let endTime = (Date.now() / 1000).toFixed() + 60 * 60 * 24; // delay 1 day
+  let startTime = Math.floor(Date.now() / 1000) + 300; // delay 5 minutes
+  let endTime = Math.floor(Date.now() / 1000) + 60 * 60 * 24; // delay 1 day
   let usr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365**24*3600)) * 10 ** 27;
 
 	if (!hre.network.live) {
