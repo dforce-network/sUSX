@@ -258,8 +258,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function deposit(uint256 assets, address receiver) public whenNotPaused updateRate override returns (uint256 shares) {
-        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
-        shares = assets * RAY / usrRateAccumulator;
+        shares = _convertToShares(assets, MathUpgradeable.Rounding.Down);
 
         require(shares + totalSupply() <= mintCap, "Exceeds mint cap!");
         _deposit(_msgSender(), receiver, assets, shares);
@@ -268,16 +267,14 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     function mint(uint256 shares, address receiver) public whenNotPaused updateRate override returns (uint256 assets){
         require(shares <= maxMint(receiver), "Exceeds mint cap!");
 
-        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
-        assets = shares.mulDiv(usrRateAccumulator, RAY, MathUpgradeable.Rounding.Up);
+        assets = _convertToAssets(shares, MathUpgradeable.Rounding.Up);
         _deposit(_msgSender(), receiver, assets, shares);
     }
 
     function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused updateRate override returns (uint256 shares) {
         require(assets <= maxWithdraw(owner), "Withdraw more than max");
 
-        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
-        shares = assets.mulDiv(RAY, usrRateAccumulator, MathUpgradeable.Rounding.Up);
+        shares = _convertToShares(assets, MathUpgradeable.Rounding.Up);
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
     }
@@ -285,8 +282,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     function redeem(uint256 shares, address receiver, address owner) public whenNotPaused updateRate override returns (uint256 assets) {
         require(shares <= maxRedeem(owner), "Redeem more than max");
 
-        uint256 usrRateAccumulator = _currentAccumulatedRateInternal();
-        assets = shares.mulDiv(usrRateAccumulator, RAY, MathUpgradeable.Rounding.Down);
+        assets = _convertToAssets(shares, MathUpgradeable.Rounding.Down);
 
         _withdraw(_msgSender(), receiver, owner, assets, shares);
     }
