@@ -37,7 +37,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         uint256 length = usrDetails.length;
 
         if (block.timestamp > usrDetails[length - 1].endTime) {
-            accumulatedRate = _currentAccumulatedRateInternal();
+            accumulatedRate = getAccumulatedRateByTime(block.timestamp);
         }
         _;
     }
@@ -151,12 +151,12 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
         require(y == 0 || (z = x * y) / y == x);
     }
 
-    function _currentAccumulatedRateInternal() internal view returns (uint256 _rateAccumulator) {
+    function getAccumulatedRateByTime(uint256 _timestamp) public view returns (uint256 _rateAccumulator) {
         uint256 length = usrDetails.length;
 
         if (length == 1) {
             UsrDetail memory initialUsr = usrDetails[0];
-            uint256 accumulatedEndTime = block.timestamp > initialUsr.endTime ? initialUsr.endTime : block.timestamp;
+            uint256 accumulatedEndTime = _timestamp > initialUsr.endTime ? initialUsr.endTime : _timestamp;
             uint256 elapsedTime = accumulatedEndTime > initialUsr.startTime ? accumulatedEndTime - initialUsr.startTime : 0;
 
             _rateAccumulator = _rmul(_rpow(initialUsr.usr, elapsedTime, RAY), accumulatedRate);
@@ -164,12 +164,14 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
             UsrDetail memory newestUsr = usrDetails[length - 1];
             UsrDetail memory newerUsr = usrDetails[length - 2];
 
-            uint256 accumulatedEndTime = block.timestamp > newerUsr.endTime ? newerUsr.endTime : block.timestamp;
+            require(_timestamp >= newerUsr.startTime, "Only the last 2 epochs can be accessed!");
+
+            uint256 accumulatedEndTime = _timestamp > newerUsr.endTime ? newerUsr.endTime : _timestamp;
             uint256 elapsedTime = accumulatedEndTime - newerUsr.startTime;
             _rateAccumulator = _rmul(_rpow(newerUsr.usr, elapsedTime, RAY), accumulatedRate);
 
-            if (block.timestamp > newestUsr.startTime) {
-                accumulatedEndTime = block.timestamp > newestUsr.endTime ? newestUsr.endTime : block.timestamp;
+            if (_timestamp > newestUsr.startTime) {
+                accumulatedEndTime = _timestamp > newestUsr.endTime ? newestUsr.endTime : _timestamp;
                 elapsedTime = accumulatedEndTime - newestUsr.startTime;
                 _rateAccumulator = _rmul(_rpow(newestUsr.usr, elapsedTime, RAY), _rateAccumulator);
             }
@@ -177,7 +179,7 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function currentAccumulatedRate() external view returns (uint256 _rateAccumulator) {
-        _rateAccumulator = _currentAccumulatedRateInternal();
+        _rateAccumulator = getAccumulatedRateByTime(block.timestamp);
     }
 
     function currentInterestRate() public view returns (uint256 _interestRate, uint256 _startTime, uint256 _endTime) {
@@ -240,12 +242,12 @@ contract sUSX is Initializable, Ownable2StepUpgradeable, PausableUpgradeable, ER
     }
 
     function _convertToAssets(uint256 shares, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
-        uint256 rateAccumulator = _currentAccumulatedRateInternal();
+        uint256 rateAccumulator = getAccumulatedRateByTime(block.timestamp);
         return shares.mulDiv(rateAccumulator, RAY, rounding);
     }
 
     function _convertToShares(uint256 assets, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
-        uint256 rateAccumulator = _currentAccumulatedRateInternal();
+        uint256 rateAccumulator = getAccumulatedRateByTime(block.timestamp);
         return assets.mulDiv(RAY, rateAccumulator, rounding);
     }
 
