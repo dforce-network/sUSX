@@ -26,6 +26,9 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     event Stake(uint256 indexed stakeAmount);
     event Unstake(uint256 indexed unstakeAmount);
 
+    event DepositFinalized(address caller, address receiver, uint256 assets, uint256 shares);
+    event WithdrawalInitiated(address caller, address owner, address receiver, uint256 assets, uint256 shares);
+
     constructor(
         string memory _name,
         string memory _symbol,
@@ -154,13 +157,52 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         super.withdraw(shares, receiver, owner);
     }
 
-    function outboundTransferAsset(
+    function outboundTransferAssets(
+        uint256 assets,
         address receiver,
-        uint256 asset,
-        bytes calldata data
-    ) external whenNotPaused updateEpochId {
-        
+        address owner
+    ) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+        uint256 shares = previewWithdraw(assets);
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+        _burn(msg.sender, shares);
+
+        totalStaked = totalStaked - assets;
+        emit WithdrawalInitiated(msg.sender, owner, receiver, assets, shares);
     }
 
-    function finalizeInboundTransfer() external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {}
+    function outboundTransferShares(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        uint256 assets = previewRedeem(shares);
+        _burn(msg.sender, shares);
+
+        totalStaked = totalStaked - assets;
+        emit WithdrawalInitiated(msg.sender, owner, receiver, assets, shares);
+    }
+
+    function finalizeInboundTransferAssets(uint256 assets, address receiver) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+        uint256 shares = previewDeposit(assets);
+
+        _mint(receiver, shares);
+
+        totalStaked = totalStaked + assets;
+        emit DepositFinalized(msg.sender, receiver, assets, shares);
+    }
+
+    function finalizeInboundTransferShares(uint256 shares, address receiver) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+        uint256 assets = previewMint(shares);
+
+        _mint(receiver, shares);
+
+        totalStaked = totalStaked + assets;
+        emit DepositFinalized(msg.sender, receiver, assets, shares);
+    }
 }
