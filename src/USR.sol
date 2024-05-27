@@ -35,12 +35,13 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
     function __USR_init(
         uint256 _initialUsrStartTime,
         uint256 _initialUsrEndTime,
-        uint256 _initialUsr
+        uint256 _initialUsr,
+        uint256 _initialRate
     ) internal onlyInitializing {
         __Ownable2Step_init();
 
         lastEpochId = 0;
-        _addNewUsrInternal(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, RAY);
+        _addNewUsrInternal(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
     }
 
     /**
@@ -52,7 +53,6 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _newUsr,
         uint256 _newRate
     ) internal {
-        require(_newUsrStartTime >= block.timestamp, "Invalid new usr start time!");
         require(_newUsrEndTime > _newUsrStartTime, "Invalid new usr end time!");
         require(_newUsr > MIN_USR && _newUsr < MAX_USR, "Invalid new usr value!");
 
@@ -79,6 +79,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _newUsrEndTime,
         uint256 _newUsr
     ) external onlyOwner updateEpochId {
+        require(_newUsrStartTime >= block.timestamp, "Invalid new usr start time!");
         uint256 _length = usrConfigs.length;
         uint256 _lastEndTime = usrConfigs[_length - 1].endTime;
         require(_newUsrStartTime >= _lastEndTime, "Invalid new usr start time!");
@@ -153,8 +154,18 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
 
     function nextAPY() external view returns (uint256 _apy, uint256 _startTime, uint256 _endTime) {
         (uint256 _currentEpochId,) = _getRate(lastEpochId, block.timestamp);
-        USRConfig memory _newestUsr = usrConfigs[_currentEpochId + 1];
-        if (block.timestamp < _newestUsr.startTime && _currentEpochId + 1 <= usrConfigs.length) {
+        uint256 _newestEpochId;
+
+        if (_currentEpochId < usrConfigs.length - 1) {
+            _newestEpochId = _currentEpochId + 1;
+        } else if (usrConfigs.length == 0) {
+            _newestEpochId = 0;
+        } else {
+            return (0,0,0);
+        }
+
+        USRConfig memory _newestUsr = usrConfigs[_newestEpochId];
+        if (block.timestamp < _newestUsr.startTime) {
             _apy = _newestUsr.usr._rpow(365 days, RAY);
             _startTime = _newestUsr.startTime;
             _endTime = _newestUsr.endTime;
