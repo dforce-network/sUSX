@@ -141,20 +141,20 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return mintCap - totalSupply();
     }
 
-    function deposit(uint256 assets, address receiver) public whenNotPaused updateEpochId override returns (uint256 shares) {
-        super.deposit(assets, receiver);
+    function deposit(uint256 assets, address receiver) public whenNotPaused updateEpochId override returns (uint256) {
+        return super.deposit(assets, receiver);
     }
 
-    function mint(uint256 shares, address receiver) public whenNotPaused updateEpochId override returns (uint256 assets){
-        super.mint(shares, receiver);
+    function mint(uint256 shares, address receiver) public whenNotPaused updateEpochId override returns (uint256){
+        return super.mint(shares, receiver);
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256 shares) {
-        super.withdraw(assets, receiver, owner);
+    function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256) {
+        return super.withdraw(assets, receiver, owner);
     }
 
-    function redeem(uint256 shares, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256 assets) {
-        super.withdraw(shares, receiver, owner);
+    function redeem(uint256 shares, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256) {
+        return super.withdraw(shares, receiver, owner);
     }
 
     function outboundTransferAssets(
