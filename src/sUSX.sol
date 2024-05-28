@@ -151,8 +151,17 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     }
 
     function totalAssets() public view override returns (uint256) {
-        (, uint256 currentRate) = _getRate(lastEpochId, block.timestamp);
-        return currentRate.mulDiv(totalSupply(), RAY, MathUpgradeable.Rounding.Down);
+        return _convertToAssets(totalSupply(), MathUpgradeable.Rounding.Down);
+    }
+
+    function _convertToAssets(uint256 shares, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
+        (, uint256 _currentRate) = _getRate(lastEpochId, block.timestamp);
+        return shares.mulDiv(_currentRate, RAY, rounding);
+    }
+
+    function _convertToShares(uint256 assets, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
+        (, uint256 _currentRate) = _getRate(lastEpochId, block.timestamp);
+        return assets.mulDiv(RAY, _currentRate, rounding);
     }
 
     function maxDeposit(address) public view override returns (uint256) {
