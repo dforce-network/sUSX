@@ -7,6 +7,8 @@ const deployFunction: DeployFunction = async function (
 ) {
 	const {deployments, getNamedAccounts, ethers} = hre;
   const {read} = deployments;
+  const {deployer} = await getNamedAccounts();
+
   let proxyAdmin;
 	let usx;
 	let msdController;
@@ -14,6 +16,8 @@ const deployFunction: DeployFunction = async function (
   let startTime = Math.floor(Date.now() / 1000) + 300; // delay 5 minutes
   let endTime = Math.floor(Date.now() / 1000) + 60 * 60 * 24; // delay 1 day
   let usr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365**24*3600)) * 10 ** 27;
+  let initialRate = ethers.BigNumber.from("10").pow(27);
+  let bridge = "";
 
 	if (!hre.network.live) {
     // Deploy usx when use local environment
@@ -33,17 +37,20 @@ const deployFunction: DeployFunction = async function (
 			"msdController",	// instance name
 			"MockMSDController", // contractName
 		);
+    bridge=deployer;
 	} else {
 		usx = await deployments.get("USX");
 		msdController = await deployments.get("msdController");
 	}
+
+  let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate, bridge];
 
   if (!hre.network.live) {
     await deploy(
       hre,
       "sUSX",
       "sUSX",
-      [usx.address, msdController.address, mintCap, startTime, endTime, usr],
+      initArgs,
       false,
     );
 
@@ -55,7 +62,7 @@ const deployFunction: DeployFunction = async function (
       [],
       true,
       "initialize",
-      [usx.address, msdController.address, mintCap, startTime, endTime, usr]
+      initArgs
     );
   }
 };
