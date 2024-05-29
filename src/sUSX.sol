@@ -203,6 +203,8 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 shares,
         address receiver
     ) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+        require(shares <= maxMint(receiver), "ERC4626: mint more than max");
+
         uint256 assets = previewMint(shares);
         _mint(receiver, assets, shares);
 
