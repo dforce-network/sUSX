@@ -189,6 +189,14 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return super.redeem(shares, receiver, owner);
     }
 
+    function transfer(address to, uint256 amount) public whenNotPaused override returns (bool) {
+        return super.transfer(to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public whenNotPaused override returns (bool) {
+        return super.transferFrom(from, to, amount);
+    }
+
     function outboundTransferShares(
         uint256 shares,
         address owner
