@@ -140,6 +140,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 assets,
         uint256 shares
     ) internal override {
+        require(receiver != address(0) && receiver != address(this), "Invalid recipient address!");
         if (caller != owner) {
             _spendAllowance(owner, caller, shares);
         }
@@ -185,7 +186,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     }
 
     function redeem(uint256 shares, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256) {
-        return super.withdraw(shares, receiver, owner);
+        return super.redeem(shares, receiver, owner);
     }
 
     function outboundTransferShares(
