@@ -6,7 +6,7 @@ const deployFunction: DeployFunction = async function (
   hre: HardhatRuntimeEnvironment
 ) {
 	const {deployments, getNamedAccounts, ethers} = hre;
-  const {read} = deployments;
+  const {execute, read} = deployments;
   const {deployer} = await getNamedAccounts();
 
   let proxyAdmin;
@@ -46,7 +46,7 @@ const deployFunction: DeployFunction = async function (
   let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate, bridge];
 
   if (!hre.network.live) {
-    await deploy(
+    let sUSX = await deploy(
       hre,
       "sUSX",
       "sUSX",
@@ -54,6 +54,15 @@ const deployFunction: DeployFunction = async function (
       false,
     );
 
+    // Set mint cap for usx in the msdController
+    await execute(
+      "msdController",
+      {from: deployer, log: true},
+      "_addMSD",
+      usx.address,
+      [sUSX.address], // minters
+      [ethers.utils.parseEther("20000")] // caps
+    );
   } else {
     await deploy(
       hre,
