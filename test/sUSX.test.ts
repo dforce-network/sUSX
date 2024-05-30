@@ -1,6 +1,6 @@
 import {expect} from 'chai';
 import {ethers, deployments, network, getUnnamedAccounts, getNamedAccounts} from 'hardhat';
-import {MockERC20, SUSX} from '../typechain-types';
+import {MockERC20, MockMSDController, SUSX} from '../typechain-types';
 import {setupUser, setupUsers} from './utils';
 import {increaseBlock, increaseTime, miningAutomatically, getCurrentTime} from './utils/helpers';
 
@@ -8,8 +8,9 @@ const setup = deployments.createFixture(async () => {
 	await deployments.fixture('sUSX');
 	const {deployer} = await getNamedAccounts();
 	const contracts = {
-		usx: await ethers.getContract<MockERC20>('USX'),
+    msdController: await ethers.getContract<MockMSDController>('msdController'),
 		sUSX: await ethers.getContract<SUSX>('sUSX'),
+		usx: await ethers.getContract<MockERC20>('USX'),
 	};
 
 	const users = await setupUsers(await getUnnamedAccounts(), contracts);
@@ -21,26 +22,36 @@ const setup = deployments.createFixture(async () => {
 });
 
 describe('sUSX', function () {
+    let allUsers: any;
     let owner: any;
     let user1: any;
     let alice: any;
     let bob: any;
     let RAY = ethers.BigNumber.from("1000000000000000000000000000"); // 1e27
 
+    // All users redeem all their shares to clear the sUSX contract
+    async function clearSUSX() {
+      for (let i = 0; i < allUsers.length; i++) {
+        let shareBalance = await allUsers[i].sUSX.balanceOf(allUsers[i].address);
+        if (shareBalance.gt(0)) {
+          await allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address);
+        }
+      }
+    }
+
     before(async function () {
       const {deployer, sUSX, users, usx} = await setup();
+      allUsers = users;
       owner = deployer;
       user1 = users[1];
       alice = users[10];
       bob = users[11];
 
       expect(await owner.sUSX.usrConfigsLength()).to.eq("1");
-      // Approve to sUSX to deposit
-      await user1.usx.approve(user1.sUSX.address, ethers.constants.MaxUint256);
-      // Approve to sUSX to deposit
-      await alice.usx.approve(user1.sUSX.address, ethers.constants.MaxUint256);
-      // Approve to sUSX to deposit
-      await bob.usx.approve(user1.sUSX.address, ethers.constants.MaxUint256);
+      // All user accounts approve to sUSX to deposit
+      for (let i = 0; i < users.length; i++) {
+        await users[i].usx.approve(users[i].sUSX.address, ethers.constants.MaxUint256);
+      }
     });
 
     describe("Deposit", async function () {
@@ -331,6 +342,34 @@ describe('sUSX', function () {
           user1.sUSX.withdraw(withdrawAmountFromAlice, user1.address, alice.address)
         ).to.be.revertedWith("ERC20: insufficient allowance");
       });
+
+      it("Withdraw revert when reaching mint cap of the USX", async function() {
+        // Set USX mint cap to 0, that means no USX interests can be minted.
+        await owner.msdController._addMSD(owner.usx.address, [owner.sUSX.address], [0]);
+        expect(await owner.msdController.mintCaps(owner.usx.address, owner.sUSX.address)).to.eq(0);
+
+        let totalTotalStaked = await owner.sUSX.totalStaked();
+        let currentWithdrawAmount = await owner.sUSX.totalUnstaked();
+
+        // Accumulated rate is greater than 0 means it has generated some interests.
+        // but usx interests mint cap is 0, so it will revert when redeem all shares.
+        expect(await owner.sUSX.currentRate()).to.gt(0);
+
+        // Try to redeem all shares with interests.
+        for (let i = 0; i < allUsers.length; i++) {
+          let shareBalance = await allUsers[i].sUSX.balanceOf(allUsers[i].address);
+          if (shareBalance.gt(0)) {
+            currentWithdrawAmount = currentWithdrawAmount.add(await allUsers[i].sUSX.previewRedeem(shareBalance));
+            if (currentWithdrawAmount > totalTotalStaked) {
+                await expect(
+                  allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address)
+                ).to.be.revertedWith("Minter mint capacity reached");
+            } else {
+              await allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address);
+            }
+          }
+        }
+      });
     });
 
     describe("Redeem", async function () {
@@ -428,6 +467,143 @@ describe('sUSX', function () {
         await expect(
           user1.sUSX.withdraw(redeemAmountFromAlice, user1.address, alice.address)
         ).to.be.revertedWith("ERC20: insufficient allowance");
+      });
+    });
+
+    describe("sUSX Transfer/TransferFrom", async function () {
+      it("Transfer Normally", async function() {
+        // Deposit at first
+        let depositAmount = ethers.utils.parseEther("10");
+        await user1.sUSX.deposit(depositAmount, user1.address);
+        let transferAmount = depositAmount.div(5);
+
+        // Transfer: check sUSX
+        await expect(
+          user1.sUSX.transfer(alice.address, transferAmount)
+        ).to.changeTokenBalances(user1.sUSX, [user1.address, alice.address], [transferAmount.mul(-1), transferAmount]);
+      });
+
+      it("Transfer revert when contract is paused", async function() {
+        await owner.sUSX.pause();
+        expect(await owner.sUSX.paused()).to.be.true;
+
+        await expect(
+          user1.sUSX.transfer(alice.address, 1)
+        ).to.be.revertedWith("Pausable: paused");
+
+        // Reset pause
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
+      });
+
+      it("TransferFrom Normally", async function() {
+        // Deposit at first
+        let depositAmount = ethers.utils.parseEther("10");
+        await user1.sUSX.deposit(depositAmount, user1.address);
+        let transferAmount = depositAmount.div(5);
+        // Approve to alice to transferFrom
+        await user1.sUSX.approve(alice.address, transferAmount);
+
+        // TransferFrom: check sUSX
+        await expect(
+          alice.sUSX.transferFrom(user1.address, alice.address, transferAmount)
+        ).to.changeTokenBalances(user1.sUSX, [user1.address, alice.address], [transferAmount.mul(-1), transferAmount]);
+      });
+
+      it("TransferFrom revert when contract is paused", async function() {
+        await owner.sUSX.pause();
+        expect(await owner.sUSX.paused()).to.be.true;
+
+        await expect(
+          alice.sUSX.transferFrom(user1.address, alice.address, 1)
+        ).to.be.revertedWith("Pausable: paused");
+
+        // Reset pause
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
+      });
+    });
+
+    describe("Bridge", async function () {
+      it("Bridge out normally", async function() {
+        // In the test case, only the owner address has the bridge role
+        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGE_ROLE(), owner.address)).to.be.true;
+
+        // Bridge sUSX out
+        // Get free token
+        let faucetAmount = ethers.utils.parseEther("1000");
+        await owner.usx.mint(owner.address, faucetAmount);
+        // Approve to sUSX to deposit
+        await owner.usx.approve(owner.sUSX.address, ethers.constants.MaxUint256);
+        // Deposit
+        await owner.sUSX.deposit(faucetAmount, owner.address);
+
+        // Bridge out
+        let bridgeAmount = faucetAmount.div(5);
+        await expect(
+          owner.sUSX.outboundTransferShares(bridgeAmount, owner.address)
+        ).to.changeTokenBalance(owner.sUSX, owner.address, bridgeAmount.mul(-1));
+      });
+
+      it("Bridge out revert when caller doesn't have permission", async function() {
+        // In the test case, only the owner address has the bridge role
+        expect(await user1.sUSX.hasRole(await owner.sUSX.BRIDGE_ROLE(), user1.address)).to.be.false;
+
+        // Bridge out
+        let bridgeAmount = ethers.utils.parseEther("100");
+        await expect(
+          user1.sUSX.outboundTransferShares(bridgeAmount, user1.address)
+        ).to.be.reverted;
+        // Revert with `AccessControl: account ${user1.address} is missing role ${bridgeRole}`
+      });
+
+      it("Bridge out revert when contract is paused", async function() {
+        await owner.sUSX.pause();
+        expect(await owner.sUSX.paused()).to.be.true;
+
+        await expect(
+          owner.sUSX.outboundTransferShares(1, owner.address)
+        ).to.be.revertedWith("Pausable: paused");
+
+        // Reset pause
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
+      });
+
+      it("Bridge in normally", async function() {
+        // In the test case, the bridge address is the owner address
+        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGE_ROLE(), owner.address)).to.be.true;
+
+        // Bridge in
+        let bridgeAmount = ethers.utils.parseEther("100");
+        await expect(
+          owner.sUSX.finalizeInboundTransferShares(bridgeAmount, owner.address)
+        ).to.changeTokenBalance(owner.sUSX, owner.address, bridgeAmount);
+      });
+
+      it("Bridge in revert when caller doesn't have permission", async function() {
+        let bridgeRole = await owner.sUSX.BRIDGE_ROLE();
+        // In the test case, only the owner address has the bridge role
+        expect(await user1.sUSX.hasRole(bridgeRole, user1.address)).to.be.false;
+
+        // Bridge in
+        await expect(
+          user1.sUSX.finalizeInboundTransferShares(1, user1.address)
+        ).to.be.reverted;
+        // Revert with `AccessControl: account ${user1.address} is missing role ${bridgeRole}`
+      });
+
+      it("Bridge in revert when contract is paused", async function() {
+        await owner.sUSX.pause();
+        expect(await owner.sUSX.paused()).to.be.true;
+
+        await expect(
+          owner.sUSX.finalizeInboundTransferShares(1, owner.address)
+        ).to.be.revertedWith("Pausable: paused");
+
+        // Reset pause
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
       });
     });
 });
