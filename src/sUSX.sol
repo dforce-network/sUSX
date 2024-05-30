@@ -16,8 +16,8 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     using MathUpgradeable for uint256;
 
     address public msdController;
-    uint256 internal totalStaked;
-    uint256 internal totalUnstaked;
+    uint256 public totalStaked;
+    uint256 public totalUnstaked;
     uint256 public mintCap; // Cap to mint sUSX
 
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
