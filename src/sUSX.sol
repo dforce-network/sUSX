@@ -20,7 +20,8 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     uint256 public totalUnstaked;
     uint256 public mintCap; // Cap to mint sUSX
 
-    bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
+    bytes32 public constant BRIDGER_ROLE = keccak256("BRIDGER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     event NewMintCap(uint256 indexed oldMintCap, uint256 indexed newMintCap);
     event Stake(uint256 indexed stakeAmount);
@@ -39,9 +40,10 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsrEndTime,
         uint256 _initialUsr,
         uint256 _initialRate,
-        address _bridge
+        address _bridge,
+        address _guardian
     ) {
-        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate, _bridge);
+        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate, _bridge, _guardian);
     }
 
     function initialize(
@@ -54,7 +56,8 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsrEndTime,
         uint256 _initialUsr,
         uint256 _initialRate,
-        address _bridge
+        address _bridge,
+        address _guardian
     ) public initializer {
         __Ownable2Step_init();
         __Pausable_init();
@@ -65,7 +68,9 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         __USR_init(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(BRIDGE_ROLE, _bridge);
+        _grantRole(BRIDGER_ROLE, _bridge);
+        _grantRole(PAUSER_ROLE, msg.sender);
+        _grantRole(PAUSER_ROLE, _guardian);
 
         msdController = _msdController;
         mintCap = _mintCap;
@@ -77,7 +82,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return 18;
     }
 
-    function pause() external onlyOwner {
+    function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
 
@@ -90,8 +95,10 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
      */
     function _transferOwnership(address newOwner) internal virtual override {
         _revokeRole(DEFAULT_ADMIN_ROLE, owner());
+        _revokeRole(PAUSER_ROLE, owner());
         super._transferOwnership(newOwner);
         _grantRole(DEFAULT_ADMIN_ROLE, newOwner);
+        _grantRole(PAUSER_ROLE, newOwner);
     }
 
     function _setMintCap(uint256 _newMintCap) external onlyOwner {
@@ -204,7 +211,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     function outboundTransferShares(
         uint256 shares,
         address owner
-    ) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+    ) external whenNotPaused onlyRole(BRIDGER_ROLE) updateEpochId {
         uint256 assets = previewRedeem(shares);
         _burn(owner, assets, shares);
 
@@ -214,7 +221,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     function finalizeInboundTransferShares(
         uint256 shares,
         address receiver
-    ) external whenNotPaused onlyRole(BRIDGE_ROLE) updateEpochId {
+    ) external whenNotPaused onlyRole(BRIDGER_ROLE) updateEpochId {
         require(shares <= maxMint(receiver), "ERC4626: mint more than max");
 
         uint256 assets = previewMint(shares);
