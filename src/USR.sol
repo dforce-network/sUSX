@@ -3,11 +3,11 @@ pragma solidity ^0.8.10;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import "./library/CustomerMath.sol";
+import "./library/RateMath.sol";
 
 // USX Saving Rate Contract
 abstract contract USR is Initializable, Ownable2StepUpgradeable {
-    using CustomerMath for uint256;
+    using RateMath for uint256;
 
     uint256 internal constant RAY = 10 ** 27;
     uint256 private constant MAX_USR = 2 * 10 ** 27;
@@ -41,13 +41,13 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         __Ownable2Step_init();
 
         lastEpochId = 0;
-        _addNewUsrInternal(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
+        _addNewUsrConfigInternal(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
     }
 
     /**
      * @dev Add a new USR config.
      */
-    function _addNewUsrInternal(
+    function _addNewUsrConfigInternal(
         uint256 _newUsrStartTime,
         uint256 _newUsrEndTime,
         uint256 _newUsr,
@@ -74,7 +74,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
      * @param _newUsrEndTime The end time of the new USR config.
      * @param _newUsr New USR value.
      */
-    function _addNewUsr(
+    function _addNewUsrConfig(
         uint256 _newUsrStartTime,
         uint256 _newUsrEndTime,
         uint256 _newUsr
@@ -85,7 +85,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         require(_newUsrStartTime >= _lastEndTime, "Invalid new usr start time!");
 
         (, uint256 _newRate) = _getRate(lastEpochId, _lastEndTime);
-        _addNewUsrInternal(_newUsrStartTime, _newUsrEndTime, _newUsr, _newRate);
+        _addNewUsrConfigInternal(_newUsrStartTime, _newUsrEndTime, _newUsr, _newRate);
     }
 
     /**
