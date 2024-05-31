@@ -21,7 +21,7 @@ const setup = deployments.createFixture(async () => {
 	};
 });
 
-describe('sUSX', function () {
+describe('USX Saving', function () {
     let allUsers: any;
     let owner: any;
     let user1: any;
@@ -39,6 +39,46 @@ describe('sUSX', function () {
       }
     }
 
+    // Deposit/Mint/Withdraw/Redeem/Transfer/TransferFrom will revert when contract is paused.
+    async function sUSXShutdownWhenPause() {
+      await expect(
+        user1.sUSX.deposit(1, user1.address)
+      ).to.be.revertedWith("Pausable: paused");
+      await expect(
+        user1.sUSX.mint(1, user1.address)
+      ).to.be.revertedWith("Pausable: paused");
+      await expect(
+        user1.sUSX.withdraw(1, user1.address, user1.address)
+      ).to.be.revertedWith("Pausable: paused");
+      await expect(
+        user1.sUSX.redeem(1, user1.address, user1.address)
+      ).to.be.revertedWith("Pausable: paused");
+      await expect(
+        user1.sUSX.transfer(alice.address, 1)
+      ).to.be.revertedWith("Pausable: paused");
+      await expect(
+        user1.sUSX.transferFrom(user1.address, alice.address, 1)
+      ).to.be.revertedWith("Pausable: paused");
+    }
+
+    // Deposit/Mint/Withdraw/Redeem/Transfer/TransferFrom can work well when contract is not paused.
+    async function sUSXWorkOnWhenUnpause() {
+      // Get free token
+      await user1.usx.mint(user1.address, ethers.utils.parseEther("100"));
+      // Approve to sUSX to deposit
+      await user1.usx.approve(user1.sUSX.address, ethers.constants.MaxUint256);
+
+      await user1.sUSX.deposit(ethers.utils.parseEther("50"), user1.address);
+      let baseUint = ethers.utils.parseEther("1");
+      await user1.sUSX.mint(baseUint, user1.address);
+      await user1.sUSX.withdraw(baseUint, user1.address, user1.address);
+      await user1.sUSX.redeem(baseUint, user1.address, user1.address);
+      await user1.sUSX.transfer(alice.address, baseUint);
+      // User1 approve to alice to transferFrom
+      await user1.sUSX.approve(alice.address, ethers.constants.MaxUint256);
+      await alice.sUSX.transferFrom(user1.address, alice.address, baseUint);
+    }
+
     before(async function () {
       const {deployer, sUSX, users, usx} = await setup();
       allUsers = users;
@@ -54,6 +94,36 @@ describe('sUSX', function () {
       }
     });
 
+
+    describe("Initialization", async function () {
+      it("Initialize sUSX contract correctly", async function () {
+        expect(await owner.sUSX.totalSupply()).to.eq(0);
+        expect(await owner.sUSX.totalStaked()).to.eq(0);
+        expect(await owner.sUSX.totalUnstaked()).to.eq(0);
+        expect(await owner.sUSX.paused()).to.be.false;
+        expect(await owner.sUSX.hasRole(await owner.sUSX.PAUSER_ROLE(), owner.address)).to.be.true;
+        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGER_ROLE(), owner.address)).to.be.true;
+      });
+
+      it("Revert when initialize twice", async function () {
+        let initArgs = [
+            "USX Savings", // name
+            "sUSX", // symbol
+            owner.usx.address, // usx
+            owner.msdController.address, // msdController
+            ethers.utils.parseEther("1000000"), // mintCap
+            0, // initialUsrStartTime
+            0, // initialUsrEndTime
+            0, // initialUsr
+            0, // initialRate
+            owner.address, // bridge
+            owner.address // guardian
+        ];
+        await expect(
+          owner.sUSX.initialize(...initArgs)
+        ).to.be.revertedWith("Initializable: contract is already initialized");
+      });
+    });
     describe("Deposit", async function () {
       it("Deposit Normally", async function() {
         // Get free token
@@ -576,7 +646,7 @@ describe('sUSX', function () {
     describe("Bridge", async function () {
       it("Bridge out normally", async function() {
         // In the test case, only the owner address has the bridge role
-        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGE_ROLE(), owner.address)).to.be.true;
+        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGER_ROLE(), owner.address)).to.be.true;
 
         // Bridge sUSX out
         // Get free token
@@ -596,7 +666,7 @@ describe('sUSX', function () {
 
       it("Bridge out revert when caller doesn't have permission", async function() {
         // In the test case, only the owner address has the bridge role
-        expect(await user1.sUSX.hasRole(await owner.sUSX.BRIDGE_ROLE(), user1.address)).to.be.false;
+        expect(await user1.sUSX.hasRole(await owner.sUSX.BRIDGER_ROLE(), user1.address)).to.be.false;
 
         // Bridge out
         let bridgeAmount = ethers.utils.parseEther("100");
@@ -621,7 +691,7 @@ describe('sUSX', function () {
 
       it("Bridge in normally", async function() {
         // In the test case, the bridge address is the owner address
-        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGE_ROLE(), owner.address)).to.be.true;
+        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGER_ROLE(), owner.address)).to.be.true;
 
         // Bridge in
         let bridgeAmount = ethers.utils.parseEther("100");
@@ -631,7 +701,7 @@ describe('sUSX', function () {
       });
 
       it("Bridge in revert when caller doesn't have permission", async function() {
-        let bridgeRole = await owner.sUSX.BRIDGE_ROLE();
+        let bridgeRole = await owner.sUSX.BRIDGER_ROLE();
         // In the test case, only the owner address has the bridge role
         expect(await user1.sUSX.hasRole(bridgeRole, user1.address)).to.be.false;
 
@@ -655,4 +725,119 @@ describe('sUSX', function () {
         expect(await owner.sUSX.paused()).to.be.false;
       });
     });
+
+    describe("Pause/Unpause", async function () {
+      it("Pause contract normally", async function () {
+        // Contract is not paused at first
+        expect(await owner.sUSX.paused()).to.be.false;
+        // Pause contract by owner
+        await owner.sUSX.pause();
+        expect(await owner.sUSX.paused()).to.be.true;
+        // Deposit/Mint/Withdraw/Redeem/Transfer/TransferFrom will revert when contract is paused.
+        await sUSXShutdownWhenPause();
+        // Unpause contract by owner
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
+
+        // Set another account to pause
+        expect(await owner.sUSX.hasRole(await owner.sUSX.PAUSER_ROLE(), alice.address)).to.be.false;
+        await owner.sUSX.grantRole(await owner.sUSX.PAUSER_ROLE(), alice.address);
+        expect(await owner.sUSX.hasRole(await owner.sUSX.PAUSER_ROLE(), alice.address)).to.be.true;
+        // Pause contract by guardian account
+        await alice.sUSX.pause();
+        expect(await owner.sUSX.paused()).to.be.true;
+        // Deposit/Mint/Withdraw/Redeem/Transfer/TransferFrom will revert when contract is paused.
+        await sUSXShutdownWhenPause();
+
+        // Reset contract: revoke and unpause
+        await owner.sUSX.revokeRole(await owner.sUSX.PAUSER_ROLE(), alice.address);
+        expect(await owner.sUSX.hasRole(await owner.sUSX.PAUSER_ROLE(), alice.address)).to.be.false;
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
+      });
+
+      it("Pause contract revert when caller doesn't have permission", async function () {
+        // Contract is not paused at first
+        expect(await owner.sUSX.paused()).to.be.false;
+
+        // Revert when caller doesn't have permission
+        expect(await owner.sUSX.hasRole(await owner.sUSX.PAUSER_ROLE(), user1.address)).to.be.false;
+        await expect(
+          user1.sUSX.pause()
+        ).to.be.reverted;
+      });
+
+      it("Unpause contract normally", async function () {
+        // If contract is not paused, pause it first
+        if (!(await owner.sUSX.paused())) {
+          await owner.sUSX.pause();
+        }
+        expect(await owner.sUSX.paused()).to.be.true;
+        // Deposit/Mint/Withdraw/Redeem/Transfer/TransferFrom will revert when contract is paused.
+        await sUSXShutdownWhenPause();
+        // Unpause contract by owner
+        await owner.sUSX.unpause();
+        expect(await owner.sUSX.paused()).to.be.false;
+        // Deposit/Mint/Withdraw/Redeem/Transfer/TransferFrom can work well when contract is not paused.
+        await sUSXWorkOnWhenUnpause();
+      });
+    });
+
+    describe("Set sUSX mint cap", async function () {
+      it("Set sUSX mint cap normally", async function () {
+        let originalsUSXMintCap = await owner.sUSX.mintCap();
+        let newMintCap = originalsUSXMintCap.mul(2);
+
+        let maxMintAmount = await owner.sUSX.maxMint(user1.address);
+
+        // Distribute enough usx to user1 to reach sUSX mint cap
+        let nextRate = await owner.sUSX.getRateByTime((await getCurrentTime())+4);
+        let mintAmount = maxMintAmount.mul(nextRate).div(RAY);
+        await user1.usx.mint(user1.address, mintAmount);
+
+        // It will revert when reaching the mint cap
+        await expect(
+          user1.sUSX.mint(maxMintAmount.add(1), user1.address)
+        ).to.be.revertedWith("ERC4626: mint more than max");
+
+        // Set new mint cap to increase the mint amount
+        await owner.sUSX._setMintCap(newMintCap);
+        expect(await owner.sUSX.mintCap()).to.eq(newMintCap);
+
+        // It will pass now when mint cap increasing
+        await user1.sUSX.mint(maxMintAmount.add(1), user1.address);
+
+        // Reset mint cap
+        await owner.sUSX._setMintCap(originalsUSXMintCap);
+      });
+
+      it("Set sUSX mint cap revert when caller doesn't have permission", async function () {
+        let newMintCap = ethers.utils.parseEther("1000000");
+        expect(await user1.sUSX.mintCap()).to.not.eq(newMintCap);
+        await expect(
+          user1.sUSX._setMintCap(newMintCap)
+        ).to.be.revertedWith("Ownable: caller is not the owner");
+      });
+
+      it("Set sUSX mint cap revert when new mint cap is the same as the old one", async function () {
+        let originalMintCap = await owner.sUSX.mintCap();
+        await expect(
+          owner.sUSX._setMintCap(originalMintCap)
+        ).to.be.revertedWith("New mint cap is the same as the old one!");
+      });
+    });
+
+    describe("Total assets", async function () {
+      // To increase the coverage of the test case, call the following getter functions.
+      it("Get total assets", async function() {
+        let sUSXTotalSupply = await owner.sUSX.totalSupply();
+        let currentRate = await owner.sUSX.currentRate();
+        let totalAssets = sUSXTotalSupply.mul(currentRate).div(RAY);
+        expect(await owner.sUSX.totalAssets()).to.eq(totalAssets);
+      });
+      it("Get decimals of sUSX", async function() {
+        expect(await owner.sUSX.decimals()).to.eq(18);
+      });
+    });
+
 });
