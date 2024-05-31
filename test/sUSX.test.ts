@@ -344,6 +344,8 @@ describe('sUSX', function () {
       });
 
       it("Withdraw revert when reaching mint cap of the USX", async function() {
+        let originalUSXMintCap = await owner.msdController.mintCaps(owner.usx.address, owner.sUSX.address);
+
         // Set USX mint cap to 0, that means no USX interests can be minted.
         await owner.msdController._addMSD(owner.usx.address, [owner.sUSX.address], [0]);
         expect(await owner.msdController.mintCaps(owner.usx.address, owner.sUSX.address)).to.eq(0);
@@ -351,24 +353,33 @@ describe('sUSX', function () {
         let totalTotalStaked = await owner.sUSX.totalStaked();
         let currentWithdrawAmount = await owner.sUSX.totalUnstaked();
 
-        // Accumulated rate is greater than 0 means it has generated some interests.
+        // Accumulated rate is greater than 0 means it can generate some interests when sUSX total supply > 0.
         // but usx interests mint cap is 0, so it will revert when redeem all shares.
         expect(await owner.sUSX.currentRate()).to.gt(0);
+        expect(await owner.sUSX.totalSupply()).to.gt(0);
+
+        // Increase time to generate interests.
+        await increaseTime(1000);
+        await increaseBlock(1);
 
         // Try to redeem all shares with interests.
         for (let i = 0; i < allUsers.length; i++) {
+          let nextRate = await allUsers[i].sUSX.getRateByTime((await getCurrentTime())+1);
           let shareBalance = await allUsers[i].sUSX.balanceOf(allUsers[i].address);
+          let userTotalFunds = shareBalance.mul(nextRate).div(RAY);
           if (shareBalance.gt(0)) {
-            currentWithdrawAmount = currentWithdrawAmount.add(await allUsers[i].sUSX.previewRedeem(shareBalance));
+            currentWithdrawAmount = currentWithdrawAmount.add(userTotalFunds);
             if (currentWithdrawAmount > totalTotalStaked) {
                 await expect(
-                  allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address)
+                  allUsers[i].sUSX.withdraw(userTotalFunds, allUsers[i].address, allUsers[i].address)
                 ).to.be.revertedWith("Minter mint capacity reached");
             } else {
-              await allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address);
+              await allUsers[i].sUSX.withdraw(userTotalFunds, allUsers[i].address, allUsers[i].address);
             }
           }
         }
+        // Reset USX mint cap
+        await owner.msdController._addMSD(owner.usx.address, [owner.sUSX.address], [originalUSXMintCap]);
       });
     });
 
@@ -467,6 +478,44 @@ describe('sUSX', function () {
         await expect(
           user1.sUSX.withdraw(redeemAmountFromAlice, user1.address, alice.address)
         ).to.be.revertedWith("ERC20: insufficient allowance");
+      });
+
+      it("Redeem revert when reaching mint cap of the USX", async function() {
+        let originalUSXMintCap = await owner.msdController.mintCaps(owner.usx.address, owner.sUSX.address);
+
+        // Set USX mint cap to 0, that means no USX interests can be minted.
+        await owner.msdController._addMSD(owner.usx.address, [owner.sUSX.address], [0]);
+        expect(await owner.msdController.mintCaps(owner.usx.address, owner.sUSX.address)).to.eq(0);
+
+        let totalTotalStaked = await owner.sUSX.totalStaked();
+        let currentWithdrawAmount = await owner.sUSX.totalUnstaked();
+
+        // Accumulated rate is greater than 0 means it can generate some interests when sUSX total supply > 0.
+        // but usx interests mint cap is 0, so it will revert when redeem all shares.
+        expect(await owner.sUSX.currentRate()).to.gt(0);
+        expect(await owner.sUSX.totalSupply()).to.gt(0);
+
+        // Increase time to generate interests.
+        await increaseTime(1000);
+        await increaseBlock(1);
+
+        // Try to redeem all shares with interests.
+        for (let i = 0; i < allUsers.length; i++) {
+          let shareBalance = await allUsers[i].sUSX.balanceOf(allUsers[i].address);
+          if (shareBalance.gt(0)) {
+            currentWithdrawAmount = currentWithdrawAmount.add(await allUsers[i].sUSX.previewRedeem(shareBalance));
+            if (currentWithdrawAmount > totalTotalStaked) {
+                await expect(
+                  allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address)
+                ).to.be.revertedWith("Minter mint capacity reached");
+            } else {
+              await allUsers[i].sUSX.redeem(shareBalance, allUsers[i].address, allUsers[i].address);
+            }
+          }
+        }
+
+        // Reset USX mint cap
+        await owner.msdController._addMSD(owner.usx.address, [owner.sUSX.address], [originalUSXMintCap]);
       });
     });
 
