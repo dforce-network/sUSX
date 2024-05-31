@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
-library CustomerMath {
+library RateMath {
     uint256 private constant RAY = 10 ** 27;
 
     function _rpow(uint256 x, uint256 n, uint256 base) internal pure returns (uint256 z) {
