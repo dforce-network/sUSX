@@ -40,10 +40,9 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsrEndTime,
         uint256 _initialUsr,
         uint256 _initialRate,
-        address _bridge,
         address _guardian
     ) {
-        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate, _bridge, _guardian);
+        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate, _guardian);
     }
 
     function initialize(
@@ -56,7 +55,6 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsrEndTime,
         uint256 _initialUsr,
         uint256 _initialRate,
-        address _bridge,
         address _guardian
     ) public initializer {
         __Ownable2Step_init();
@@ -68,7 +66,6 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         __USR_init(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(BRIDGER_ROLE, _bridge);
         _grantRole(PAUSER_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, _guardian);
 
@@ -180,14 +177,30 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return mintCap - totalSupply();
     }
 
-    function _beforeTokenTransfer(address from, address to, uint256 amount) internal whenNotPaused updateEpochId override {
+    function deposit(uint256 assets, address receiver) public updateEpochId override returns (uint256) {
+        return super.deposit(assets, receiver);
+    }
+
+    function mint(uint256 shares, address receiver) public updateEpochId override returns (uint256){
+        return super.mint(shares, receiver);
+    }
+
+    function withdraw(uint256 assets, address receiver, address owner) public updateEpochId override returns (uint256) {
+        return super.withdraw(assets, receiver, owner);
+    }
+
+    function redeem(uint256 shares, address receiver, address owner) public updateEpochId override returns (uint256) {
+        return super.redeem(shares, receiver, owner);
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal whenNotPaused override {
         super._beforeTokenTransfer(from, to, amount);
     }
 
     function outboundTransferShares(
         uint256 shares,
         address owner
-    ) external onlyRole(BRIDGER_ROLE) {
+    ) external onlyRole(BRIDGER_ROLE) updateEpochId {
         uint256 assets = previewRedeem(shares);
         _burn(owner, assets, shares);
 
@@ -197,7 +210,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     function finalizeInboundTransferShares(
         uint256 shares,
         address receiver
-    ) external onlyRole(BRIDGER_ROLE) {
+    ) external onlyRole(BRIDGER_ROLE) updateEpochId {
         require(shares <= maxMint(receiver), "ERC4626: mint more than max");
 
         uint256 assets = previewMint(shares);
