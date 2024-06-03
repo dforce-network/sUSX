@@ -180,30 +180,14 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return mintCap - totalSupply();
     }
 
-    function deposit(uint256 assets, address receiver) public whenNotPaused updateEpochId override returns (uint256) {
-        return super.deposit(assets, receiver);
-    }
-
-    function mint(uint256 shares, address receiver) public whenNotPaused updateEpochId override returns (uint256){
-        return super.mint(shares, receiver);
-    }
-
-    function withdraw(uint256 assets, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256) {
-        return super.withdraw(assets, receiver, owner);
-    }
-
-    function redeem(uint256 shares, address receiver, address owner) public whenNotPaused updateEpochId override returns (uint256) {
-        return super.redeem(shares, receiver, owner);
-    }
-
-    function _beforeTokenTransfer(address from, address to, uint256 amount) internal whenNotPaused override {
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal whenNotPaused updateEpochId override {
         super._beforeTokenTransfer(from, to, amount);
     }
 
     function outboundTransferShares(
         uint256 shares,
         address owner
-    ) external whenNotPaused onlyRole(BRIDGER_ROLE) updateEpochId {
+    ) external onlyRole(BRIDGER_ROLE) {
         uint256 assets = previewRedeem(shares);
         _burn(owner, assets, shares);
 
@@ -213,7 +197,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
     function finalizeInboundTransferShares(
         uint256 shares,
         address receiver
-    ) external whenNotPaused onlyRole(BRIDGER_ROLE) updateEpochId {
+    ) external onlyRole(BRIDGER_ROLE) {
         require(shares <= maxMint(receiver), "ERC4626: mint more than max");
 
         uint256 assets = previewMint(shares);
