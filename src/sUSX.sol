@@ -196,16 +196,8 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return super.redeem(shares, receiver, owner);
     }
 
-    function _beforeTokenTransfer(address from, address to, uint256 amount) internal updateEpochId override {
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal whenNotPaused override {
         super._beforeTokenTransfer(from, to, amount);
-    }
-
-    function transfer(address to, uint256 amount) public whenNotPaused override returns (bool) {
-        return super.transfer(to, amount);
-    }
-
-    function transferFrom(address from, address to, uint256 amount) public whenNotPaused override returns (bool) {
-        return super.transferFrom(from, to, amount);
     }
 
     function outboundTransferShares(
