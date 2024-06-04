@@ -79,10 +79,10 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _newUsrEndTime,
         uint256 _newUsr
     ) external onlyOwner updateEpochId {
-        require(_newUsrStartTime >= block.timestamp, "Invalid new usr start time!");
+        require(_newUsrStartTime >= block.timestamp, "New usr start time should be later!");
         uint256 _length = usrConfigs.length;
         uint256 _lastEndTime = usrConfigs[_length - 1].endTime;
-        require(_newUsrStartTime >= _lastEndTime, "Invalid new usr start time!");
+        require(_newUsrStartTime >= _lastEndTime, "New usr start time should be greater than last end time!");
 
         (, uint256 _newRate) = _getRate(lastEpochId, _lastEndTime);
         _addNewUsrConfigInternal(_newUsrStartTime, _newUsrEndTime, _newUsr, _newRate);
@@ -156,10 +156,10 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         (uint256 _currentEpochId,) = _getRate(lastEpochId, block.timestamp);
         uint256 _newestEpochId;
 
-        if (_currentEpochId < usrConfigs.length - 1) {
-            _newestEpochId = _currentEpochId + 1;
-        } else if (usrConfigs.length == 0) {
+        if (block.timestamp < usrConfigs[0].startTime) {
             _newestEpochId = 0;
+        } else if (_currentEpochId < usrConfigs.length - 1) {
+            _newestEpochId = _currentEpochId + 1;
         } else {
             return (0,0,0);
         }
