@@ -56,8 +56,10 @@ describe('USX Saving', function () {
       await expect(
         user1.sUSX.transfer(alice.address, 1)
       ).to.be.revertedWith("Pausable: paused");
+      // User1 approve to alice to transferFrom
+      await user1.sUSX.approve(alice.address, ethers.constants.MaxUint256);
       await expect(
-        user1.sUSX.transferFrom(user1.address, alice.address, 1)
+        alice.sUSX.transferFrom(user1.address, alice.address, 1)
       ).to.be.revertedWith("Pausable: paused");
     }
 
@@ -116,7 +118,6 @@ describe('USX Saving', function () {
             0, // initialUsrEndTime
             0, // initialUsr
             0, // initialRate
-            owner.address, // bridge
             owner.address // guardian
         ];
         await expect(
@@ -633,6 +634,8 @@ describe('USX Saving', function () {
         await owner.sUSX.pause();
         expect(await owner.sUSX.paused()).to.be.true;
 
+        // User1 approve to alice to transferFrom
+        await user1.sUSX.approve(alice.address, ethers.constants.MaxUint256);
         await expect(
           alice.sUSX.transferFrom(user1.address, alice.address, 1)
         ).to.be.revertedWith("Pausable: paused");
