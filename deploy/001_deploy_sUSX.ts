@@ -17,7 +17,6 @@ const deployFunction: DeployFunction = async function (
   let endTime = Math.floor(Date.now() / 1000) + 60 * 60 * 24; // delay 1 day
   let usr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
   let initialRate = ethers.BigNumber.from("10").pow(27);
-  let bridge = "";
   let guardian = "";
 
 	if (!hre.network.live) {
@@ -38,14 +37,13 @@ const deployFunction: DeployFunction = async function (
 			"msdController",	// instance name
 			"MockMSDController", // contractName
 		);
-    bridge=deployer;
     guardian=deployer;
 	} else {
 		usx = await deployments.get("USX");
 		msdController = await deployments.get("msdController");
 	}
 
-  let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate, bridge, guardian];
+  let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate, guardian];
 
   if (!hre.network.live) {
     let sUSX = await deploy(
@@ -54,6 +52,20 @@ const deployFunction: DeployFunction = async function (
       "sUSX",
       initArgs,
       false,
+    );
+
+    let bridgeRoleString = await read(
+      "sUSX",
+      "BRIDGER_ROLE"
+    );
+
+    // Set bridge role for sUSX
+    await execute(
+      "sUSX",
+      {from: deployer, log: true},
+      "grantRole",
+      bridgeRoleString,
+      deployer
     );
 
     // Set mint cap for usx in the msdController
