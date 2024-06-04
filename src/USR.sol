@@ -100,7 +100,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _elapsedTime;
 
         uint256 _length = usrConfigs.length;
-        for (uint256 i =_startEpochId; _epochId < _length; ) {
+        for (uint256 i =_startEpochId; i < _length; ) {
             _usrConfig = usrConfigs[i];
             _epochId = i;
 
