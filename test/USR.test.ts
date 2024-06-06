@@ -54,7 +54,7 @@ const setup = deployments.createFixture(async () => {
 	};
 });
 
-describe.skip('USX Rating', function () {
+describe('USX Saving Rating', function () {
     let allUsers: any;
     let owner: any;
     let user1: any;
@@ -70,11 +70,48 @@ describe.skip('USX Rating', function () {
       alice = users[10];
       bob = users[11];
 
-      // All user accounts approve to sUSX to deposit
-      for (let i = 0; i < users.length; i++) {
-        await users[i].usx.approve(users[i].sUSX.address, ethers.constants.MaxUint256);
-      }
+      // Distribute usx and approve to sUSX to deposit
+    for (let i = 0; i < users.length; i++) {
+      await users[i].usx.mint(users[i].address, ethers.utils.parseEther("1000000"));
+      await users[i].usx.approve(users[i].sUSX.address, ethers.constants.MaxUint256);
+    }
     });
+
+    // Do actions in a epoch, including deposit, withdraw, mint, redeem, transfer, transferFrom
+    async function actInEpoch(usrConfig: any) {
+      // Enter epoch 0
+      if (usrConfig.startTime > await getCurrentTime()) {
+        await increaseTime((usrConfig.startTime.sub(await getCurrentTime())).toNumber());
+        await increaseBlock(1);
+      }
+        
+      expect(await getCurrentTime()).to.gte(usrConfig.startTime);
+      // User do some actions: deposit, mint
+      let depositAmount = ethers.utils.parseEther("1000");
+      await user1.sUSX.deposit(depositAmount, user1.address);
+      await user1.sUSX.mint(depositAmount, user1.address);
+      // Increase some time
+      await increaseTime(300); // 5 minutes later
+      await increaseBlock(1);
+      expect(await getCurrentTime()).to.lt(usrConfig.endTime);
+      // User do some actions: withdraw, redeem
+      let withdrawAmount = ethers.utils.parseEther("200");
+      await user1.sUSX.withdraw(withdrawAmount, user1.address, user1.address);
+      await user1.sUSX.redeem(withdrawAmount, user1.address, user1.address);
+      // Increase some time
+      await increaseTime(300); // 5 minutes later
+      await increaseBlock(1);
+      expect(await getCurrentTime()).to.lt(usrConfig.endTime);
+      // User do some actions: transfer, transferFrom
+      let transferAmount = ethers.utils.parseEther("100");
+      await user1.sUSX.transfer(alice.address, transferAmount);
+      await user1.sUSX.approve(bob.address, transferAmount);
+      await bob.sUSX.transferFrom(user1.address, bob.address, transferAmount);
+      // Increase some time
+      await increaseTime(300); // 5 minutes later
+      await increaseBlock(1);
+      expect(await getCurrentTime()).to.lt(usrConfig.endTime);
+    }
 
     describe("Add new USR Config", async function () {
       it("Add new USR Config normally", async function () {
@@ -267,69 +304,123 @@ describe.skip('USX Rating', function () {
         expect(nextAPYDetails._endTime).to.eq(0);
       });
     });
-});
 
-describe('Earn interest', function () {
-  let allUsers: any;
-  let owner: any;
-  let user1: any;
-  let alice: any;
-  let bob: any;
-  let RAY = ethers.BigNumber.from("1000000000000000000000000000"); // 1e27
-  let BASE = ethers.BigNumber.from("1000000000000000000"); // 1e18
+    describe.only("Check Rate", async function () {
+      it("Check the start rate of a new epoch", async function () {
+        // 1. Usr in the epoch 0 uses the positive interest rate, then check start rate in the epoch 1
+        // Get current usr config length
+        let usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        // Get last usr config
+        let lastUSRConfig = await owner.sUSX.usrConfigs(usrConfigsLength.sub(1));
+        // Set new usr config with the positive interest rate
+        let newStartTime = lastUSRConfig.endTime.add(600); // 10 minutes later
+        let newEndTime = newStartTime.add(3600); // 1 hour later
+        let newUsr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
+        // Add new USR config: mark this new epoch as epoch 0
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(usrConfigsLength.add(1));
+        let epoch0USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
+        // epoch0USRConfig.usr > RAY due to the positive interest rate
+        expect(epoch0USRConfig.usr).to.gt(RAY);
 
-  beforeEach(async function () {
-    const {deployer, sUSX, users, usx} = await setup();
-    allUsers = users;
-    owner = deployer;
-    user1 = users[1];
-    alice = users[10];
-    bob = users[11];
+        // Set a new epoch to check its start rate: mark this new epoch as epoch 1
+        newStartTime = newEndTime.add(3600); // 1 hour later
+        newEndTime = newStartTime.add(3600); // 1 hour later
+        newUsr = ethers.BigNumber.from("999999996977734019902612350"); // Math.pow(0.9, 1/(365*24*3600)) * 10 ** 27;
+        // Add new USR config
+        usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(usrConfigsLength.add(1));
 
-    // Distribute usx and approve to sUSX to deposit
-    for (let i = 0; i < users.length; i++) {
-      await users[i].usx.mint(users[i].address, ethers.utils.parseEther("1000000"));
-      await users[i].usx.approve(users[i].sUSX.address, ethers.constants.MaxUint256);
-    }
-  });
+        // Get epoch 1 usr config
+        let epoch1USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
+        // The start rate should be equal to the rate at the start time at every epoch
+        expect(await owner.sUSX.getRateByTime(epoch1USRConfig.startTime)).to.eq(epoch1USRConfig.startRate);
+        expect(await owner.sUSX.getRateByTime(epoch0USRConfig.endTime)).to.eq(epoch1USRConfig.startRate);
 
-  it("Deposit for a period of time to earn interest", async function () {
-    let usrConfig = await owner.sUSX.usrConfigs(0);
-    // Increase time to enter epoch 0
-    await increaseTime((usrConfig.startTime.sub(await getCurrentTime()).add(100)).toNumber());
-    await increaseBlock(1);
-    expect(await getCurrentTime()).to.gt(usrConfig.startTime);
-    expect(await getCurrentTime()).to.lt(usrConfig.endTime);
+        // The start rate in the latest epoch should be equal to the rate at the end of the previous epoch
+        // Calculate start rate at the epoch 1 by _rpow
+        let expectedEpoch1StartRate = _rpow(epoch0USRConfig.usr, epoch0USRConfig.endTime.sub(epoch0USRConfig.startTime), RAY).mul(epoch0USRConfig.startRate).div(RAY);
+        expect(epoch1USRConfig.startRate).to.eq(expectedEpoch1StartRate);
 
-    // Has accumulated interest
-    expect(await owner.sUSX.currentRate()).to.gt(RAY);
-    // Deposit at the epoch 0
-    let beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
-    let depositAmount = ethers.utils.parseEther("1000");
-    await user1.sUSX.deposit(depositAmount, user1.address);
+        // 2. Usr in the epoch 1 uses the negative interest rate, then check start rate in the epoch 2
+        // epoch1USRConfig.usr > RAY due to the negative interest rate
+        expect(epoch1USRConfig.usr).to.lt(RAY);
 
-    // Deposit for 10 minutes. Increase time to 10 minutes later
-    let epochDuration = 600;
-    await increaseTime(epochDuration);
-    await increaseBlock(1);
-    // Epoch 0 does not end yet
-    expect(await getCurrentTime()).to.lt(usrConfig.endTime);
+        // Set a new epoch to check its start rate: mark this new epoch as epoch 2
+        newStartTime = epoch1USRConfig.endTime.add(3600); // 1 hour later
+        newEndTime = newStartTime.add(3600); // 1 hour later
+        newUsr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
+        // Add new USR config
+        usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(usrConfigsLength.add(1)); 
 
-    // Redeem by all shares
-    let user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
-    await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
-    let afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
-    // User1 earns interest at the epoch 0
-    let user1Earns = afterUser1AssetBalance.sub(beforeUser1AssetBalance);
+        // Get epoch 2 usr config
+        let epoch2USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
+        // The start rate should be equal to the rate at the start time at every epoch
+        expect(await owner.sUSX.getRateByTime(epoch2USRConfig.startTime)).to.eq(epoch2USRConfig.startRate);
+        expect(await owner.sUSX.getRateByTime(epoch1USRConfig.endTime)).to.eq(epoch2USRConfig.startRate);
+        
+        // Calculate start rate at the epoch 2 by _rpow
+        // The start rate in the latest epoch should be equal to the rate at the end of the previous epoch
+        let expectedEpoch2StartRate = _rpow(epoch1USRConfig.usr, epoch1USRConfig.endTime.sub(epoch1USRConfig.startTime), RAY).mul(epoch1USRConfig.startRate).div(RAY);
+        expect(epoch2USRConfig.startRate).to.eq(expectedEpoch2StartRate);
+      });
 
-    // Math.pow(1000000003022265980097387650/1e27, 600) => 1.0000018133612372
-    let finalInterestRate = Math.pow(usrConfig.usr/1e27, epochDuration);
-    // (1.0000018133612372 * 1e18 - 1e18) * depositAmount / 1e18 => 1813361237200000
-    let user1ExpectedEarns = ethers.utils.parseEther(finalInterestRate.toString()).sub(BASE).mul(depositAmount).div(BASE);
+      it("User actions in a epoch do not effect the start rate in the next epoch", async function () {
+        // Get current usr config length
+        let usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        // Get last usr config
+        let lastUSRConfig = await owner.sUSX.usrConfigs(usrConfigsLength.sub(1));
+        // Set new usr config with the positive interest rate
+        let newStartTime = lastUSRConfig.endTime.add(600); // 10 minutes later
+        let newEndTime = newStartTime.add(3600); // 1 hour later
+        let newUsr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
+        // Add new USR config: mark this new epoch as epoch 0
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(usrConfigsLength.add(1));
+        let epoch0USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
+        // epoch0USRConfig.usr > RAY due to the positive interest rate
+        expect(epoch0USRConfig.usr).to.gt(RAY);
+        
+        // 1. Usr in the epoch 0 uses the positive interest rate, then check start rate in the epoch 1
+        let expectedEpoch1StartRate = _rpow(epoch0USRConfig.usr, epoch0USRConfig.endTime.sub(epoch0USRConfig.startTime), RAY).mul(epoch0USRConfig.startRate).div(RAY);
+        // Enter epoch 0 to do some actions: deposit, withdraw, mint, redeem, transfer, transferFrom
+        await actInEpoch(epoch0USRConfig);
 
-    // 10 Twei = 10**4 Gwei
-    let delta = ethers.BigNumber.from("10000000000000");
-    expect(user1ExpectedEarns).to.closeTo(user1Earns, delta);
-    expect(await owner.sUSX.totalStaked()).to.lt(await owner.sUSX.totalUnstaked());
-  });
+        // Set a new epoch to check its start rate: mark this new epoch as epoch 1
+        newStartTime = newEndTime.add(3600); // 1 hour later
+        newEndTime = newStartTime.add(3600); // 1 hour later
+        newUsr = ethers.BigNumber.from("999999996977734019902612350"); // Math.pow(0.9, 1/(365*24*3600)) * 10 ** 27;
+        // Add new USR config
+        usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(usrConfigsLength.add(1));
+        // Get epoch 1 usr config
+        let epoch1USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
+        // epoch1SRConfig.usr < RAY due to the negative interest rate
+        expect(epoch1USRConfig.usr).to.lt(RAY);
+        // User actions in epoch 0 do not effect the start rate in epoch 1
+        expect(expectedEpoch1StartRate).to.eq(epoch1USRConfig.startRate);
+
+        // 2. Usr in the epoch 1 uses the negative interest rate, then check start rate in the epoch 2
+        let expectedEpoch2StartRate = _rpow(epoch1USRConfig.usr, epoch1USRConfig.endTime.sub(epoch1USRConfig.startTime), RAY).mul(epoch1USRConfig.startRate).div(RAY);
+        // Enter epoch 1 to do some actions: deposit, withdraw, mint, redeem, transfer, transferFrom
+        await actInEpoch(epoch1USRConfig);
+
+        // Set a new epoch to check its start rate: mark this new epoch as epoch 1
+        newStartTime = newEndTime.add(3600); // 1 hour later
+        newEndTime = newStartTime.add(3600); // 1 hour later
+        newUsr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
+        // Add new USR config
+        usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(usrConfigsLength.add(1));
+        // Get epoch 2 usr config
+        let epoch2USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
+        // User actions in epoch 1 do not effect the start rate in epoch 2
+        expect(expectedEpoch2StartRate).to.eq(epoch2USRConfig.startRate);
+      });
+    });
 });
