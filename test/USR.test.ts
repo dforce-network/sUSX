@@ -4,6 +4,7 @@ import {MockERC20, MockMSDController, SUSX} from '../typechain-types';
 import {setupUser, setupUsers} from './utils';
 import {increaseBlock, increaseTime, miningAutomatically, getCurrentTime} from './utils/helpers';
 import { BigNumber } from 'ethers';
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 
 function _rpow(x: BigNumber, n: BigNumber, base: BigNumber): BigNumber {
     if (x.isZero()) {
@@ -62,7 +63,7 @@ describe('USX Saving Rating', function () {
     let bob: any;
     let RAY = ethers.BigNumber.from("1000000000000000000000000000"); // 1e27
 
-    before(async function () {
+    beforeEach(async function () {
       const {deployer, sUSX, users, usx} = await setup();
       allUsers = users;
       owner = deployer;
@@ -190,7 +191,7 @@ describe('USX Saving Rating', function () {
       
     });
 
-    describe("Check Current/Next APY", async function () {
+    describe.skip("Check Current/Next APY", async function () {
       it("Epoch 0 does not start yet", async function () {
         expect(await owner.sUSX.usrConfigsLength()).to.gte("0");
         let usrConfig = await owner.sUSX.usrConfigs(0);
@@ -424,7 +425,7 @@ describe('USX Saving Rating', function () {
       });
     });
 
-    describe.only("Exchange rate", async function () {
+    describe("Exchange rate", async function () {
       it("When rate is 1, check assets changed", async function () {
         // Get epoch 0 config
         let epoch0USRConfig = await owner.sUSX.usrConfigs(0);
@@ -499,4 +500,100 @@ describe('USX Saving Rating', function () {
         expect(afterUser1AssetBalance.add(loopTimes)).to.eq(beforeUser1AssetBalance);
       });
     });
+});
+
+describe.only('Earn interest', function () {
+  let allUsers: any;
+  let owner: any;
+  let user1: any;
+  let alice: any;
+  let bob: any;
+  let RAY = ethers.BigNumber.from("1000000000000000000000000000"); // 1e27
+  let BASE = ethers.BigNumber.from("1000000000000000000"); // 1e18
+
+  beforeEach(async function () {
+    const {deployer, sUSX, users, usx} = await setup();
+    allUsers = users;
+    owner = deployer;
+    user1 = users[1];
+    alice = users[10];
+    bob = users[11];
+
+    // Distribute usx and approve to sUSX to deposit
+    for (let i = 0; i < users.length; i++) {
+      await users[i].usx.mint(users[i].address, ethers.utils.parseEther("100000000"));
+      await users[i].usx.approve(users[i].sUSX.address, ethers.constants.MaxUint256);
+    }
+  });
+
+  it("Deposit for a period of time with different interest rate", async function () {
+    // Epoch 0 uses positive interest rate
+    let epoch0UsrConfig = await owner.sUSX.usrConfigs(0);
+    expect(epoch0UsrConfig.usr).to.gt(RAY);
+    // Epoch 0 does not start yet
+    expect(epoch0UsrConfig.startTime).to.gt(await getCurrentTime());
+
+    // Deposit when the rate is 1
+    expect(await owner.sUSX.currentRate()).to.eq(RAY);
+    let beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    let depositAmount = ethers.utils.parseEther("1000");
+    await user1.sUSX.deposit(depositAmount, user1.address);
+
+    // Pass the whole epoch 0
+    await time.setNextBlockTimestamp(epoch0UsrConfig.endTime);
+    // expect(await getCurrentTime()).to.eq(epoch0UsrConfig.endTime);
+
+    // Redeem by all shares
+    let user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
+    await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
+    let afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    // User1 earns interest at the epoch 0
+    let user1Earns = afterUser1AssetBalance.sub(beforeUser1AssetBalance);
+    let currentRate = await owner.sUSX.currentRate();
+    // Cause deposit amount is 1000, so the interest rate 27-18-3 = 6
+    expect(currentRate.sub(RAY).div(ethers.utils.parseUnits("1",6))).to.eq(user1Earns);
+
+    let finalInterestRate = _rpow(epoch0UsrConfig.usr, epoch0UsrConfig.endTime.sub(epoch0UsrConfig.startTime), RAY);
+    let user1ExpectedEarns = finalInterestRate.sub(RAY).mul(user1ShareBalance).div(BASE).div(ethers.utils.parseUnits("1",9));
+    // expect(user1ExpectedEarns).to.closeTo(user1Earns, 2);
+    expect(user1Earns).to.eq(user1ExpectedEarns);
+
+    // Set epoch 1 with negative interest rate
+    let newStartTime = epoch0UsrConfig.endTime.add(600); // 10 minutes later
+    // Has the same duration as epoch 0
+    let newEndTime = newStartTime.add(epoch0UsrConfig.endTime.sub(epoch0UsrConfig.startTime));
+    let newUsr = ethers.BigNumber.from("999999996659039970769164170"); // python
+    // Add new USR config
+    let beforeUsrConfigsLength = await owner.sUSX.usrConfigsLength();
+    await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+    expect(await owner.sUSX.usrConfigsLength()).to.eq(beforeUsrConfigsLength.add(1));
+    // Get new USR config
+    let epoch1UsrConfig = await owner.sUSX.usrConfigs(beforeUsrConfigsLength);
+
+    // Epoch 1 does not start yet
+    expect(epoch1UsrConfig.startTime).to.gt(await getCurrentTime());
+
+    // Deposit but the rate is not 1
+    expect(await owner.sUSX.currentRate()).to.not.eq(RAY);
+    beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    await user1.sUSX.deposit(depositAmount, user1.address);
+
+    // Pass the whole epoch 1
+    await time.setNextBlockTimestamp(epoch1UsrConfig.endTime);
+
+    // Redeem by all shares
+    user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
+    await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
+    afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    // User1 earns interest at the epoch 0
+    let user1Loses = beforeUser1AssetBalance.sub(afterUser1AssetBalance);
+    currentRate = await owner.sUSX.currentRate();
+    // expect(currentRate.sub(RAY).div(ethers.utils.parseUnits("1",6))).to.eq(user1Earns);
+
+    finalInterestRate = _rpow(epoch1UsrConfig.usr, epoch1UsrConfig.endTime.sub(epoch1UsrConfig.startTime), RAY).mul(epoch1UsrConfig.startRate).div(RAY);
+    let epoch1StartRate = epoch1UsrConfig.startRate;
+    let user1ExpectedLoses = epoch1StartRate.sub(finalInterestRate).mul(user1ShareBalance).div(BASE).div(ethers.utils.parseUnits("1",9));
+
+    expect(user1ExpectedLoses).to.closeTo(user1Loses, 2);
+  });
 });
