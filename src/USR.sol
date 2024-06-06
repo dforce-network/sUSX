@@ -5,7 +5,8 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "./library/RateMath.sol";
 
-// USX Saving Rate Contract
+/// @title USX Saving Rate(USR) Contract
+/// @dev Accumulated rate by seconds: newRate = lastRate * usr^elapsedTime
 abstract contract USR is Initializable, Ownable2StepUpgradeable {
     using RateMath for uint256;
 
@@ -16,6 +17,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
     struct USRConfig {
         uint256 startTime;
         uint256 endTime;
+        // if usr > 1e27, the rate will increase, otherwise decrease.
         uint256 usr;
         uint256 startRate;
     }
