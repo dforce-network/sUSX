@@ -305,7 +305,7 @@ describe('USX Saving Rating', function () {
       });
     });
 
-    describe.only("Check Rate", async function () {
+    describe("Check start rate", async function () {
       it("Check the start rate of a new epoch", async function () {
         // 1. Usr in the epoch 0 uses the positive interest rate, then check start rate in the epoch 1
         // Get current usr config length
@@ -421,6 +421,82 @@ describe('USX Saving Rating', function () {
         let epoch2USRConfig = await owner.sUSX.usrConfigs(usrConfigsLength);
         // User actions in epoch 1 do not effect the start rate in epoch 2
         expect(expectedEpoch2StartRate).to.eq(epoch2USRConfig.startRate);
+      });
+    });
+
+    describe.only("Exchange rate", async function () {
+      it("When rate is 1, check assets changed", async function () {
+        // Get epoch 0 config
+        let epoch0USRConfig = await owner.sUSX.usrConfigs(0);
+        expect(epoch0USRConfig.startTime).to.gt(await getCurrentTime());
+        expect(await owner.sUSX.currentRate()).to.eq(RAY);
+
+        let beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+
+        // Deposit and Redeem for some times
+        let depositAmount = ethers.utils.parseEther("1000");
+        for (let i = 0; i < 10; i++) {
+          // Deposit
+          await user1.sUSX.deposit(depositAmount, user1.address);
+
+          // Increase some time
+          await increaseTime(10); // 10s later
+          await increaseBlock(1);
+          expect(epoch0USRConfig.startTime).to.gt(await getCurrentTime());
+
+          // Redeem all
+          let user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
+          await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
+        }
+
+        expect(await owner.sUSX.currentRate()).to.eq(RAY);
+        let afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+
+        // Asset of user1 should not change
+        expect(afterUser1AssetBalance).to.eq(beforeUser1AssetBalance);
+      });
+
+      it("When rate is not 1, check assets changed", async function () {
+        // Only one epoch
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(1);
+        // Get epoch 0 config
+        let epoch0USRConfig = await owner.sUSX.usrConfigs(0);
+        if (epoch0USRConfig.endTime > await getCurrentTime()) {
+          // Increase time to pass epoch 0
+          await increaseTime((epoch0USRConfig.endTime.sub(await getCurrentTime()).add(1)).toNumber());
+          await increaseBlock(1);
+        }
+        expect(epoch0USRConfig.endTime).to.lt(await getCurrentTime());
+        expect(await owner.sUSX.currentRate()).to.gt(RAY);
+
+        let beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+        let currentRate = await owner.sUSX.currentRate();
+
+        // Deposit and Redeem for some times
+        let depositAmount = ethers.utils.parseEther("1234.56789");
+        let loopTimes = 13;
+        for (let i = 0; i < loopTimes; i++) {
+          // Deposit
+          await user1.sUSX.deposit(depositAmount, user1.address);
+
+          // Increase some time
+          await increaseTime(60); // 60s later
+          await increaseBlock(1);
+          // Epoch 0 has ended, and only one epoch, so rate should be changed.
+          expect(await owner.sUSX.currentRate()).to.eq(currentRate);
+
+          // Redeem all
+          let user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
+          await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
+        }
+
+        // Epoch 0 has ended, and only one epoch, so rate should be changed.
+        expect(await owner.sUSX.currentRate()).to.eq(currentRate);
+        let afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+
+        // Asset of user1 should decrease due to redeeming has rounding down
+        // that is will lose 1 wei for every redeem
+        expect(afterUser1AssetBalance.add(loopTimes)).to.eq(beforeUser1AssetBalance);
       });
     });
 });
