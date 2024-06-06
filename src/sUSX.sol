@@ -12,13 +12,21 @@ import {IERC1271} from "./interface/IERC1271.sol";
 import {IMSD,IMSDController} from "./interface/IMSDMintable.sol";
 import {USR} from "./USR.sol";
 
+/// @title Savings USX
+/// @notice This contract extends ERC4626, and there is no fee for depositing or withdrawing.
+/// @dev User can deposit USX to get sUSX(Savings USX) earn interest.
+///      Each sUSX accrues USX interest at the USR(USX Savings Rate).
+///      USX will be burned when deposit and be minted again when withdraw sUSX.
 contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgradeable, ERC20PermitUpgradeable, ERC4626Upgradeable, USR {
     using MathUpgradeable for uint256;
 
     address public msdController;
+    // Total amount of USX staked, pure funds only
     uint256 public totalStaked;
+    // Total amount of USX unstaked, including funds and interest
     uint256 public totalUnstaked;
-    uint256 public mintCap; // Cap to mint sUSX
+    // Cap to mint sUSX
+    uint256 public mintCap;
 
     bytes32 public constant BRIDGER_ROLE = keccak256("BRIDGER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
@@ -106,6 +114,12 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         emit NewMintCap(oldMintCap, _newMintCap);
     }
 
+    /**
+     * @notice Only used for the `msdController` contract.
+     *         Lazy mint USX interest, that is only minted if `totalUnstaked` > `totalStaked`.
+     *         How to use this value can be found in `msdController` contract.
+     * @dev Get the total amount of USX interest minted by sUSX.
+     */
     function totalMint() external view returns (uint256) {
         if (totalUnstaked < totalStaked) {
             return 0;
