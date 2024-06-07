@@ -47,10 +47,9 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsrStartTime,
         uint256 _initialUsrEndTime,
         uint256 _initialUsr,
-        uint256 _initialRate,
-        address _guardian
+        uint256 _initialRate
     ) {
-        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate, _guardian);
+        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
     }
 
     function initialize(
@@ -62,8 +61,7 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsrStartTime,
         uint256 _initialUsrEndTime,
         uint256 _initialUsr,
-        uint256 _initialRate,
-        address _guardian
+        uint256 _initialRate
     ) public initializer {
         __Ownable2Step_init();
         __Pausable_init();
@@ -72,10 +70,6 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         __ERC4626_init(_usx);
         __ERC20_init(_name, _symbol);
         __USR_init(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
-
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(PAUSER_ROLE, _guardian);
 
         msdController = _msdController;
         mintCap = _mintCap;
