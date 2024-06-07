@@ -86,7 +86,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _lastEndTime = usrConfigs[_length - 1].endTime;
         require(_newUsrStartTime >= _lastEndTime, "New usr start time should be greater than last end time!");
 
-        (, uint256 _newRate) = _getRate(lastEpochId, _lastEndTime);
+        (, uint256 _newRate) = _getRate(_length - 1, _lastEndTime);
         _addNewUsrConfigInternal(_newUsrStartTime, _newUsrEndTime, _newUsr, _newRate);
     }
 
@@ -156,21 +156,19 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
 
     function nextAPY() external view returns (uint256 _apy, uint256 _startTime, uint256 _endTime) {
         (uint256 _currentEpochId,) = _getRate(lastEpochId, block.timestamp);
-        uint256 _newestEpochId;
+        uint256 _newestEpochId = _currentEpochId;
 
-        if (block.timestamp < usrConfigs[0].startTime) {
-            _newestEpochId = 0;
-        } else if (_currentEpochId < usrConfigs.length - 1) {
+        if (block.timestamp >= usrConfigs[_currentEpochId].startTime) {
             _newestEpochId = _currentEpochId + 1;
-        } else {
-            return (0,0,0);
         }
+
+        if (_newestEpochId > usrConfigs.length -1) {
+            return (0,0,0);
+        } 
 
         USRConfig memory _newestUsr = usrConfigs[_newestEpochId];
-        if (block.timestamp < _newestUsr.startTime) {
-            _apy = _newestUsr.usr._rpow(365 days, RAY);
-            _startTime = _newestUsr.startTime;
-            _endTime = _newestUsr.endTime;
-        }
+        _apy = _newestUsr.usr._rpow(365 days, RAY);
+        _startTime = _newestUsr.startTime;
+        _endTime = _newestUsr.endTime;
     }
 }
