@@ -103,8 +103,6 @@ describe('USX Saving', function () {
         expect(await owner.sUSX.totalStaked()).to.eq(0);
         expect(await owner.sUSX.totalUnstaked()).to.eq(0);
         expect(await owner.sUSX.paused()).to.be.false;
-        expect(await owner.sUSX.hasRole(await owner.sUSX.PAUSER_ROLE(), owner.address)).to.be.true;
-        expect(await owner.sUSX.hasRole(await owner.sUSX.BRIDGER_ROLE(), owner.address)).to.be.true;
       });
 
       it("Revert when initialize twice", async function () {
@@ -118,7 +116,6 @@ describe('USX Saving', function () {
             0, // initialUsrEndTime
             0, // initialUsr
             0, // initialRate
-            owner.address // guardian
         ];
         await expect(
           owner.sUSX.initialize(...initArgs)
@@ -843,4 +840,7 @@ describe('USX Saving', function () {
       });
     });
 
+    describe("Launch different bridges", async function () {
+
+    });
 });
