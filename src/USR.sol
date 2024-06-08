@@ -11,8 +11,8 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
     using RateMath for uint256;
 
     uint256 internal constant RAY = 10 ** 27;
-    uint256 private constant MAX_USR = 2 * 10 ** 27;
-    uint256 private constant MIN_USR = 0;
+    uint256 private constant MAX_USR = 1000000012857214317438491418; // +30%
+    uint256 private constant MIN_USR = 999999988689911785840947108; // -50%
 
     struct USRConfig {
         uint256 startTime;
