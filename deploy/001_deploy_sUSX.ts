@@ -12,12 +12,12 @@ const deployFunction: DeployFunction = async function (
   let proxyAdmin;
 	let usx;
 	let msdController;
-  let mintCap = ethers.utils.parseEther("10000"); // sUSX
+  let mintCap = ethers.utils.parseEther("100000000"); // sUSX
   let startTime = Math.floor(Date.now() / 1000) + 300; // delay 5 minutes
-  let endTime = Math.floor(Date.now() / 1000) + 60 * 60 * 24; // delay 1 day
+  let endTime = startTime + 60 * 60 * 24 * 365; // delay 1 day
   let usr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
+  // let usr = ethers.BigNumber.from("999999996659039970769164170"); // Math.pow(0.9, 1/(365*24*3600)) * 10 ** 27;
   let initialRate = ethers.BigNumber.from("10").pow(27);
-  let guardian = "";
 
 	if (!hre.network.live) {
     // Deploy usx when use local environment
@@ -37,13 +37,12 @@ const deployFunction: DeployFunction = async function (
 			"msdController",	// instance name
 			"MockMSDController", // contractName
 		);
-    guardian=deployer;
 	} else {
 		usx = await deployments.get("USX");
 		msdController = await deployments.get("msdController");
 	}
 
-  let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate, guardian];
+  let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate];
 
   if (!hre.network.live) {
     let sUSX = await deploy(
@@ -58,6 +57,7 @@ const deployFunction: DeployFunction = async function (
       "sUSX",
       "BRIDGER_ROLE"
     );
+    let pauserRoleString = await read("sUSX", "PAUSER_ROLE");
 
     // Set bridge role for sUSX
     await execute(
@@ -68,6 +68,15 @@ const deployFunction: DeployFunction = async function (
       deployer
     );
 
+    // Set pauser role for sUSX
+    await execute(
+      "sUSX",
+      {from: deployer, log: true},
+      "grantRole",
+      pauserRoleString,
+      deployer
+    );
+
     // Set mint cap for usx in the msdController
     await execute(
       "msdController",
@@ -75,7 +84,7 @@ const deployFunction: DeployFunction = async function (
       "_addMSD",
       usx.address,
       [sUSX.address], // minters
-      [ethers.utils.parseEther("20000")] // caps
+      [ethers.utils.parseEther("200000000")] // caps
     );
   } else {
     await deploy(
