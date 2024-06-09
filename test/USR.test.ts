@@ -5,6 +5,7 @@ import {setupUser, setupUsers} from './utils';
 import {increaseBlock, increaseTime, miningAutomatically, getCurrentTime} from './utils/helpers';
 import { BigNumber } from 'ethers';
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+import { setNextBlockTimestamp } from '@nomicfoundation/hardhat-network-helpers/dist/src/helpers/time';
 
 function _rpow(x: BigNumber, n: BigNumber, base: BigNumber): BigNumber {
     if (x.isZero()) {
@@ -200,6 +201,7 @@ describe('USR contract', function () {
       });
 
       it("Epoch 0 ends, and epoch 1 does not start yet", async function () {
+        // Epoch length
         // Increase time to end epoch 0
         let usrConfig = await owner.sUSX.usrConfigs(0);
         await increaseTime((usrConfig.endTime.sub(await getCurrentTime()).add(1)).toNumber());
@@ -549,6 +551,7 @@ describe('Earn interest', function () {
     }
   });
 
+  // TODO: Reuse the following code
   it("Deposit for some time in a epoch with different interest rate", async function () {
     // Only one epoch
     expect(await owner.sUSX.usrConfigsLength()).to.eq(1);
@@ -709,6 +712,127 @@ describe('Earn interest', function () {
 
     expect(user1ExpectedLoses).to.closeTo(user1Loses, 2);
     // pow(1+10%, n)-1 > 1-pow(1-10%, n)
+    expect(user1Earns).to.gt(user1Loses);
+  });
+
+  it("Deposit at two epochs with different interest rate", async function () {
+    // Epoch 0 uses positive interest rate
+    let epoch0UsrConfig = await owner.sUSX.usrConfigs(0);
+    expect(epoch0UsrConfig.usr).to.gt(RAY);
+
+    // Epoch 0 does not start yet
+    expect(epoch0UsrConfig.startTime).to.gt(await getCurrentTime());
+    // Enter epoch 0 at the half of the epoch
+    let depositDuration = epoch0UsrConfig.endTime.sub(epoch0UsrConfig.startTime).div(2);
+    await setNextBlockTimestamp(epoch0UsrConfig.startTime.add(depositDuration));
+
+    // Deposit
+    let beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    let depositAmount = ethers.utils.parseEther("1000");
+    await user1.sUSX.deposit(depositAmount, user1.address);
+    // Deposit during the epoch 0
+    expect(await getCurrentTime()).to.gt(epoch0UsrConfig.startTime);
+    expect(await getCurrentTime()).to.lt(epoch0UsrConfig.endTime);
+    let depositRate = await owner.sUSX.currentRate();
+
+    // Set epoch 1 with positive interest rate
+    let newStartTime = epoch0UsrConfig.endTime.add(600); // 10 minutes later
+    // Has the same duration as epoch 0
+    let newEndTime = newStartTime.add(epoch0UsrConfig.endTime.sub(epoch0UsrConfig.startTime));
+    let newUsr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
+    // Add new USR config
+    let beforeUsrConfigsLength = await owner.sUSX.usrConfigsLength();
+    await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+    expect(await owner.sUSX.usrConfigsLength()).to.eq(beforeUsrConfigsLength.add(1));
+    // Get new USR config
+    let epoch1UsrConfig = await owner.sUSX.usrConfigs(beforeUsrConfigsLength);
+    expect(epoch1UsrConfig.usr).to.gt(RAY);
+
+    // Enter epoch 1 at the half of the epoch
+    await setNextBlockTimestamp(epoch1UsrConfig.startTime.add(depositDuration));
+
+    // Redeem by all shares
+    let user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
+    await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
+    // Redeem during the epoch 1
+    expect(await getCurrentTime()).to.gt(epoch1UsrConfig.startTime);
+    expect(await getCurrentTime()).to.lt(epoch1UsrConfig.endTime);
+    let redeemRate = await owner.sUSX.currentRate();
+    // console.log("redeemRate: ", redeemRate.toString());
+    let afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+
+    // User1 earns
+    let user1Earns = afterUser1AssetBalance.sub(beforeUser1AssetBalance);
+    // console.log("user1Earns: ", user1Earns.toString());
+    // Expect user1 earns
+    let expectedUser1Earns = redeemRate.sub(depositRate).mul(user1ShareBalance).div(RAY);
+    // console.log("expectedUser1Earns: ", expectedUser1Earns.toString());
+    expect(expectedUser1Earns).to.closeTo(user1Earns, 2);
+
+    // Calculate the expected rate
+    let finalInterestRate = _rpow(epoch1UsrConfig.usr, depositDuration, RAY).mul(epoch1UsrConfig.startRate).div(RAY);  
+    // console.log("finalInterestRate: ", finalInterestRate.toString());
+
+    // Set epoch 2 with negative interest rate
+    newStartTime = epoch1UsrConfig.endTime.add(600); // 10 minutes later
+    // Has the same duration as epoch 0
+    newEndTime = newStartTime.add(epoch1UsrConfig.endTime.sub(epoch1UsrConfig.startTime));
+    newUsr = ethers.BigNumber.from("999999996659039970769164170"); // python
+    // Add new USR config
+    beforeUsrConfigsLength = await owner.sUSX.usrConfigsLength();
+    await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+    expect(await owner.sUSX.usrConfigsLength()).to.eq(beforeUsrConfigsLength.add(1));
+    // Get new USR config
+    let epoch2UsrConfig = await owner.sUSX.usrConfigs(beforeUsrConfigsLength);
+
+    // Enter epoch 2 at the half of the epoch
+    await setNextBlockTimestamp(epoch2UsrConfig.startTime.add(depositDuration));
+
+    // Deposit
+    beforeUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    await user1.sUSX.deposit(depositAmount, user1.address);
+    // Deposit during the epoch 2
+    expect(await getCurrentTime()).to.gt(epoch2UsrConfig.startTime);
+    expect(await getCurrentTime()).to.lt(epoch2UsrConfig.endTime);
+    depositRate = await owner.sUSX.currentRate();
+    
+    // Set epoch 3 with negative interest rate
+    newStartTime = epoch2UsrConfig.endTime.add(600); // 10 minutes later
+    // Has the same duration as epoch 0
+    newEndTime = newStartTime.add(epoch2UsrConfig.endTime.sub(epoch2UsrConfig.startTime));
+    newUsr = ethers.BigNumber.from("999999996659039970769164170"); // python
+    // Add new USR config
+    beforeUsrConfigsLength = await owner.sUSX.usrConfigsLength();
+    await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+    expect(await owner.sUSX.usrConfigsLength()).to.eq(beforeUsrConfigsLength.add(1));
+    // Get new USR config
+    let epoch3UsrConfig = await owner.sUSX.usrConfigs(beforeUsrConfigsLength);
+
+    // Enter epoch 3 at the half of the epoch
+    await setNextBlockTimestamp(epoch3UsrConfig.startTime.add(depositDuration));
+
+    // Redeem by all shares
+    user1ShareBalance = await user1.sUSX.balanceOf(user1.address);
+    await user1.sUSX.redeem(user1ShareBalance, user1.address, user1.address);
+    // Redeem during the epoch 3
+    expect(await getCurrentTime()).to.gt(epoch3UsrConfig.startTime);
+    expect(await getCurrentTime()).to.lt(epoch3UsrConfig.endTime);
+    redeemRate = await owner.sUSX.currentRate();
+    // console.log("redeemRate: ", redeemRate.toString());
+    afterUser1AssetBalance = await user1.usx.balanceOf(user1.address);
+    // User1 loses
+    let user1Loses = beforeUser1AssetBalance.sub(afterUser1AssetBalance);
+    // console.log("user1Loses: ", user1Loses.toString());
+    // Expect user1 loses
+    let expectedUser1Loses = depositRate.sub(redeemRate).mul(user1ShareBalance).div(RAY);
+    // console.log("expectedUser1Loses: ", expectedUser1Loses.toString());
+    expect(expectedUser1Loses).to.closeTo(user1Loses, 2);
+
+    // Calculate the expected rate
+    finalInterestRate = _rpow(epoch3UsrConfig.usr, depositDuration, RAY).mul(epoch3UsrConfig.startRate).div(RAY);
+    // console.log("finalInterestRate: ", finalInterestRate.toString());
+
+    // Expect user1 earns is greater than loses
     expect(user1Earns).to.gt(user1Loses);
   });
 });
