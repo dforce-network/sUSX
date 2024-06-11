@@ -841,6 +841,44 @@ describe('USX Saving', function () {
     });
 
     describe("Launch different bridges", async function () {
+      it("Deploy sUSX on different bridge", async function () {
+        // In the test case, owner is the bridger.
+        let bridgeRole = await owner.sUSX.BRIDGER_ROLE();
+        expect(await owner.sUSX.hasRole(bridgeRole, owner.address)).to.be.true;
+
+        let usrConfigsLength = await owner.sUSX.usrConfigsLength();
+        let lastUSRConfig = await owner.sUSX.usrConfigs(usrConfigsLength.sub(1));
+        if (lastUSRConfig.startTime > await getCurrentTime()) {
+          await increaseTime(lastUSRConfig.startTime - await getCurrentTime() + 600); // 10 minutes later
+          await increaseBlock(1);
+        }
+
+        expect(await getCurrentTime()).to.gt(lastUSRConfig.startTime);
+        expect(await getCurrentTime()).to.lt(lastUSRConfig.endTime);
+
+        // Deploy a new sUSX to simulate deploying sUSX on two different chains.
+        let mintCap = await owner.sUSX.mintCap();
+        let startTime = lastUSRConfig.startTime;
+        let endTime = lastUSRConfig.endTime;
+        let usr = lastUSRConfig.usr;
+        let initialRate = lastUSRConfig.startRate;
+        let initArgs = ["USX Savings 2", "sUSX2", owner.usx.address, owner.msdController.address, mintCap, startTime, endTime, usr, initialRate];
+
+        let sUSX2 = await (
+          await ethers.getContractFactory("sUSX")
+        ).deploy(...initArgs);
+        await sUSX2.deployed();
+
+        // sUSX and sUSX2 are deployed on different bridges at different time,
+        // but they have the same USR config, so at the same time in the same epoch,
+        // the rate should be the same.
+        increaseTime(600); // 10 minutes later
+        increaseBlock(1);
+
+        let sUSX1Rate = await owner.sUSX.currentRate();
+        let sUSX2Rate = await sUSX2.currentRate();
+        expect(sUSX2Rate).to.eq(sUSX1Rate);
+      });
 
     });
 });
