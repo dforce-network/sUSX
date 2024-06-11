@@ -11,8 +11,8 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
     using RateMath for uint256;
 
     uint256 internal constant RAY = 10 ** 27;
-    uint256 private constant MAX_USR = 1000000012857214317438491418; // +30%
-    uint256 private constant MIN_USR = 999999988689911785840947108; // -50%
+    uint256 private constant MAX_USR = 1000000012857214317438491418; // +50%
+    uint256 private constant MIN_USR = 999999988689911785840947108; // -30%
 
     struct USRConfig {
         uint256 startTime;
@@ -56,7 +56,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _newRate
     ) internal {
         require(_newUsrEndTime > _newUsrStartTime, "Invalid new usr end time!");
-        require(_newUsr > MIN_USR && _newUsr < MAX_USR, "Invalid new usr value!");
+        require(_newUsr >= MIN_USR && _newUsr <= MAX_USR, "Invalid new usr value!");
 
         usrConfigs.push(USRConfig({
             startTime: _newUsrStartTime,
