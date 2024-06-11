@@ -64,7 +64,7 @@ describe('USR contract', function () {
     let bob: any;
     let RAY = ethers.BigNumber.from("1000000000000000000000000000"); // 1e27
 
-    before(async function () {
+    beforeEach(async function () {
       const {deployer, sUSX, users, usx} = await setup();
       allUsers = users;
       owner = deployer;
@@ -157,8 +157,20 @@ describe('USR contract', function () {
     });
 
     describe("Check Current/Next APY", async function () {
+      async function addNewEpoch(newEpochId: number) {
+        if (newEpochId < 1) {
+          throw "Invalid epoch id!"
+        }
+        let lastUsrConfig = await owner.sUSX.usrConfigs(newEpochId - 1);
+        let newStartTime = lastUsrConfig.endTime.add(600); // 10 minutes later
+        let newEndTime = newStartTime.add(lastUsrConfig.endTime.sub(lastUsrConfig.startTime));
+        let newUsr = lastUsrConfig.usr;
+
+        await owner.sUSX._addNewUsrConfig(newStartTime, newEndTime, newUsr);
+      }
+
       it("Epoch 0 does not start yet", async function () {
-        expect(await owner.sUSX.usrConfigsLength()).to.gte("0");
+        expect(await owner.sUSX.usrConfigsLength()).to.gte("1");
         let usrConfig = await owner.sUSX.usrConfigs(0);
         // Epoch 0 does not start yet
         expect(usrConfig.startTime).to.gt(await getCurrentTime());
@@ -185,11 +197,12 @@ describe('USR contract', function () {
         expect(currentAPYDetails._startTime).to.eq(usrConfig.startTime);
         expect(currentAPYDetails._endTime).to.eq(usrConfig.endTime);
 
-        // // When does not have epoch 1, next APY will be 0
-        // expect(await owner.sUSX.usrConfigsLength()).to.eq(1);
-        // expect((await owner.sUSX.nextAPY())._apy).to.eq("0");
+        // When does not have epoch 1, next APY will be 0
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(1);
+        expect((await owner.sUSX.nextAPY())._apy).to.eq("0");
 
         // Has epoch 1
+        await addNewEpoch(1);
         expect(await owner.sUSX.usrConfigsLength()).to.gte("1");
         let nextUsrConfig = await owner.sUSX.usrConfigs(1);
         // Epoch 1 does not start yet
@@ -200,21 +213,28 @@ describe('USR contract', function () {
         expect(nextAPYDetails._endTime).to.eq(nextUsrConfig.endTime);
       });
 
-      it("Epoch 0 ends, and epoch 1 does not start yet", async function () {
-        // Epoch length
+      it("Epoch 0 ends", async function () {
         // Increase time to end epoch 0
         let usrConfig = await owner.sUSX.usrConfigs(0);
         await increaseTime((usrConfig.endTime.sub(await getCurrentTime()).add(1)).toNumber());
         await increaseBlock(1);
         expect(usrConfig.endTime).to.lt(await getCurrentTime());
 
-        // Epoch 1 does not start yet
-        expect(await getCurrentTime()).to.lt((await owner.sUSX.usrConfigs(1)).startTime);
         // Current APY should be 0
         let currentAPYDetails = await owner.sUSX.currentAPY();
         expect(currentAPYDetails._apy).to.eq("0");
         expect(currentAPYDetails._startTime).to.eq(0);
         expect(currentAPYDetails._endTime).to.eq(0);
+
+        // When does not have epoch 1, next APY will be 0
+        expect(await owner.sUSX.usrConfigsLength()).to.eq(1);
+        expect((await owner.sUSX.nextAPY())._apy).to.eq("0");
+
+        // Has epoch 1
+        await addNewEpoch(1);
+
+        // Epoch 1 does not start yet
+        expect(await getCurrentTime()).to.lt((await owner.sUSX.usrConfigs(1)).startTime);
 
         // Epoch 1 does not start yet, use USR config 1 for next APY
         let nextUsrConfig = await owner.sUSX.usrConfigs(1);
@@ -224,50 +244,72 @@ describe('USR contract', function () {
         expect(nextAPYDetails._endTime).to.eq(nextUsrConfig.endTime);
       });
 
-      it("Epoch 1 starts, and no epoch 2", async function () {
+      it("Epoch 1 starts", async function () {
         // Do not have epoch 2 yet
-        expect(await owner.sUSX.usrConfigsLength()).to.eq(2);
+        expect(await owner.sUSX.usrConfigsLength()).to.lt(3);
 
-        let usrConfig = await owner.sUSX.usrConfigs(1);
+        // Add epoch1
+        await addNewEpoch(1);
+
+        let epoch1UsrConfig = await owner.sUSX.usrConfigs(1);
         // Increase time to enter epoch 1
-        await increaseTime((usrConfig.startTime.sub(await getCurrentTime()).add(1)).toNumber());
+        await increaseTime((epoch1UsrConfig.startTime.sub(await getCurrentTime()).add(1)).toNumber());
         await increaseBlock(1);
-        expect(await getCurrentTime()).to.gt(usrConfig.startTime);
-        expect(await getCurrentTime()).to.lt(usrConfig.endTime);
+        expect(await getCurrentTime()).to.gt(epoch1UsrConfig.startTime);
+        expect(await getCurrentTime()).to.lt(epoch1UsrConfig.endTime);
 
         // Epoch 1 starts
         let currentAPYDetails = await owner.sUSX.currentAPY();
         expect(currentAPYDetails._apy).to.gt(0);
-        expect(currentAPYDetails._startTime).to.eq(usrConfig.startTime);
-        expect(currentAPYDetails._endTime).to.eq(usrConfig.endTime);
+        expect(currentAPYDetails._startTime).to.eq(epoch1UsrConfig.startTime);
+        expect(currentAPYDetails._endTime).to.eq(epoch1UsrConfig.endTime);
 
         // No epoch 2 yet
         let nextAPYDetails = await owner.sUSX.nextAPY();
         expect(nextAPYDetails._apy).to.eq("0");
         expect(nextAPYDetails._startTime).to.eq(0);
         expect(nextAPYDetails._endTime).to.eq(0);
+
+        // Add epoch2
+        await addNewEpoch(2);
+        let nextUsrConfig = await owner.sUSX.usrConfigs(2);
+        nextAPYDetails = await owner.sUSX.nextAPY();
+        expect(nextAPYDetails._apy).to.gt("0");
+        expect(nextAPYDetails._startTime).to.eq(nextUsrConfig.startTime);
+        expect(nextAPYDetails._endTime).to.eq(nextUsrConfig.endTime);
       });
 
       it("Epoch 1 ends, and no epoch 2", async function () {
         // Do not have epoch 2 yet
-        expect(await owner.sUSX.usrConfigsLength()).to.eq(2);
+        expect(await owner.sUSX.usrConfigsLength()).to.lt(3);
 
-        let usrConfig = await owner.sUSX.usrConfigs(1);
+        // Add epoch 1
+        await addNewEpoch(1);
+
+        let epoch1UsrConfig = await owner.sUSX.usrConfigs(1);
         // Increase time to end epoch 1
-        await increaseTime((usrConfig.endTime.sub(await getCurrentTime()).add(1)).toNumber());
+        await increaseTime((epoch1UsrConfig.endTime.sub(await getCurrentTime()).add(1)).toNumber());
         await increaseBlock(1);
-        expect(usrConfig.endTime).to.lt(await getCurrentTime());
+        expect(epoch1UsrConfig.endTime).to.lt(await getCurrentTime());
 
-        // No epoch 2 yet
         let currentAPYDetails = await owner.sUSX.currentAPY();
         expect(currentAPYDetails._apy).to.eq(0);
         expect(currentAPYDetails._startTime).to.eq(0);
         expect(currentAPYDetails._endTime).to.eq(0);
 
+        // No epoch 2 yet
         let nextAPYDetails = await owner.sUSX.nextAPY();
         expect(nextAPYDetails._apy).to.eq("0");
         expect(nextAPYDetails._startTime).to.eq(0);
         expect(nextAPYDetails._endTime).to.eq(0);
+
+        // Add epoch2
+        await addNewEpoch(2);
+        let nextUsrConfig = await owner.sUSX.usrConfigs(2);
+        nextAPYDetails = await owner.sUSX.nextAPY();
+        expect(nextAPYDetails._apy).to.gt("0");
+        expect(nextAPYDetails._startTime).to.eq(nextUsrConfig.startTime);
+        expect(nextAPYDetails._endTime).to.eq(nextUsrConfig.endTime);
       });
     });
 });
