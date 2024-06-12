@@ -19,7 +19,10 @@ contract MockMSDController {
         address[] calldata _minters,
         uint256[] calldata _mintCaps
     ) external {
-        require(_minters.length == _mintCaps.length, "Mismatched input lengths");
+        require(
+            _minters.length == _mintCaps.length,
+            "Mismatched input lengths"
+        );
 
         uint256 _len = _minters.length;
         for (uint256 i; i < _len; ) {
