@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.10;
+pragma solidity 0.8.10;
 
 interface IMSDController {
     function mintMSD(address token, address usr, uint256 wad) external;

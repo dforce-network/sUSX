@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.10;
+pragma solidity 0.8.10;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
@@ -102,7 +102,7 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _elapsedTime;
 
         uint256 _length = usrConfigs.length;
-        for (uint256 i =_startEpochId; i < _length; ) {
+        for (uint256 i = _startEpochId; i < _length; ) {
             _usrConfig = usrConfigs[i];
             _epochId = i;
 
