@@ -5,13 +5,13 @@ import {deploy, execute} from "../utils/utils";
 const deployFunction: DeployFunction = async function (
   hre: HardhatRuntimeEnvironment
 ) {
-	const {deployments, getNamedAccounts, ethers} = hre;
+  const {deployments, getNamedAccounts, ethers} = hre;
   const {execute, read} = deployments;
   const {deployer} = await getNamedAccounts();
 
   let proxyAdmin;
-	let usx;
-	let msdController;
+  let usx;
+  let msdController;
   let mintCap = ethers.utils.parseEther("100000000"); // sUSX
   let startTime = Math.floor(Date.now() / 1000) + 300; // delay 5 minutes
   let endTime = startTime + 60 * 60 * 24 * 365; // delay 1 day
@@ -19,44 +19,45 @@ const deployFunction: DeployFunction = async function (
   // let usr = ethers.BigNumber.from("999999996659039970769164170"); // Math.pow(0.9, 1/(365*24*3600)) * 10 ** 27;
   let initialRate = ethers.BigNumber.from("10").pow(27);
 
-	if (!hre.network.live) {
+  if (!hre.network.live) {
     // Deploy usx when use local environment
     proxyAdmin = await deploy(
-			hre,
-			"proxyAdmin",	// instance name
-			"ProxyAdmin2Step", // contractName
-		);
-		usx = await deploy(
-			hre,
-			"USX",	// instance name
-			"MockERC20", // contractName
-			["Mock ERC20 Token", "MET"], // constructorArgs
-		);
-		msdController = await deploy(
-			hre,
-			"msdController",	// instance name
-			"MockMSDController", // contractName
-		);
-	} else {
-		usx = await deployments.get("USX");
-		msdController = await deployments.get("msdController");
-	}
+      hre,
+      "proxyAdmin", // instance name
+      "ProxyAdmin2Step" // contractName
+    );
+    usx = await deploy(
+      hre,
+      "USX", // instance name
+      "MockERC20", // contractName
+      ["Mock ERC20 Token", "MET"] // constructorArgs
+    );
+    msdController = await deploy(
+      hre,
+      "msdController", // instance name
+      "MockMSDController" // contractName
+    );
+  } else {
+    usx = await deployments.get("USX");
+    msdController = await deployments.get("msdController");
+  }
 
-  let initArgs = ["USX Savings", "sUSX", usx.address, msdController.address, mintCap, startTime, endTime, usr, initialRate];
+  let initArgs = [
+    "USX Savings",
+    "sUSX",
+    usx.address,
+    msdController.address,
+    mintCap,
+    startTime,
+    endTime,
+    usr,
+    initialRate,
+  ];
 
   if (!hre.network.live) {
-    let sUSX = await deploy(
-      hre,
-      "sUSX",
-      "sUSX",
-      initArgs,
-      false,
-    );
+    let sUSX = await deploy(hre, "sUSX", "sUSX", initArgs, false);
 
-    let bridgeRoleString = await read(
-      "sUSX",
-      "BRIDGER_ROLE"
-    );
+    let bridgeRoleString = await read("sUSX", "BRIDGER_ROLE");
     let pauserRoleString = await read("sUSX", "PAUSER_ROLE");
 
     // Set bridge role for sUSX
@@ -87,15 +88,7 @@ const deployFunction: DeployFunction = async function (
       [ethers.utils.parseEther("200000000")] // caps
     );
   } else {
-    await deploy(
-      hre,
-      "sUSX",
-      "sUSX",
-      [],
-      true,
-      "initialize",
-      initArgs
-    );
+    await deploy(hre, "sUSX", "sUSX", [], true, "initialize", initArgs);
   }
 };
 

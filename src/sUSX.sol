@@ -1,22 +1,29 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.10;
 
-import {AccessControlEnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
-import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
-import {ERC4626Upgradeable,ERC20Upgradeable,MathUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
-import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import {SafeERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
-import {IMSD,IMSDController} from "./interface/IMSDMintable.sol";
-import {USR} from "./USR.sol";
+import { AccessControlEnumerableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import { ERC20PermitUpgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import { ERC4626Upgradeable, ERC20Upgradeable, MathUpgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import { IERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { PausableUpgradeable } from "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import { SafeERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import { IMSD, IMSDController } from "./interface/IMSDMintable.sol";
+import { USR } from "./USR.sol";
 
 /// @title Savings USX
 /// @notice This contract extends ERC4626, and there is no fee for depositing or withdrawing.
 /// @dev User can deposit USX to get sUSX(Savings USX) earn interest.
 ///      Each sUSX accrues USX interest at the USR(USX Savings Rate).
 ///      USX will be burned when deposit and be minted again when withdraw sUSX.
-contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgradeable, ERC20PermitUpgradeable, ERC4626Upgradeable, USR {
+contract sUSX is
+    Initializable,
+    PausableUpgradeable,
+    AccessControlEnumerableUpgradeable,
+    ERC20PermitUpgradeable,
+    ERC4626Upgradeable,
+    USR
+{
     using MathUpgradeable for uint256;
 
     address public msdController;
@@ -48,7 +55,17 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 _initialUsr,
         uint256 _initialRate
     ) {
-        initialize(_name, _symbol, _usx, _msdController, _mintCap, _initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
+        initialize(
+            _name,
+            _symbol,
+            _usx,
+            _msdController,
+            _mintCap,
+            _initialUsrStartTime,
+            _initialUsrEndTime,
+            _initialUsr,
+            _initialRate
+        );
     }
 
     function initialize(
@@ -68,7 +85,12 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         __ERC20Permit_init(_symbol);
         __ERC4626_init(_usx);
         __ERC20_init(_name, _symbol);
-        __USR_init(_initialUsrStartTime, _initialUsrEndTime, _initialUsr, _initialRate);
+        __USR_init(
+            _initialUsrStartTime,
+            _initialUsrEndTime,
+            _initialUsr,
+            _initialRate
+        );
 
         msdController = _msdController;
         mintCap = _mintCap;
@@ -76,7 +98,12 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         emit NewMintCap(0, mintCap);
     }
 
-    function decimals() public pure override(ERC4626Upgradeable, ERC20Upgradeable) returns (uint8) {
+    function decimals()
+        public
+        pure
+        override(ERC4626Upgradeable, ERC20Upgradeable)
+        returns (uint8)
+    {
         return 18;
     }
 
@@ -101,7 +128,10 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
 
     function _setMintCap(uint256 _newMintCap) external onlyOwner {
         uint256 oldMintCap = mintCap;
-        require(_newMintCap != oldMintCap, "New mint cap is the same as the old one!");
+        require(
+            _newMintCap != oldMintCap,
+            "New mint cap is the same as the old one!"
+        );
         mintCap = _newMintCap;
 
         emit NewMintCap(oldMintCap, _newMintCap);
@@ -135,8 +165,16 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         emit Unstake(assets);
     }
 
-    function _deposit(address caller, address receiver, uint256 assets, uint256 shares) internal override {
-        require(receiver != address(0) && receiver != address(this), "Invalid recipient address!");
+    function _deposit(
+        address caller,
+        address receiver,
+        uint256 assets,
+        uint256 shares
+    ) internal override {
+        require(
+            receiver != address(0) && receiver != address(this),
+            "Invalid recipient address!"
+        );
 
         IMSD(asset()).burn(caller, assets);
         _mint(receiver, assets, shares);
@@ -151,7 +189,10 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         uint256 assets,
         uint256 shares
     ) internal override {
-        require(receiver != address(0) && receiver != address(this), "Invalid recipient address!");
+        require(
+            receiver != address(0) && receiver != address(this),
+            "Invalid recipient address!"
+        );
         if (caller != owner) {
             _spendAllowance(owner, caller, shares);
         }
@@ -166,41 +207,69 @@ contract sUSX is Initializable, PausableUpgradeable, AccessControlEnumerableUpgr
         return _convertToAssets(totalSupply(), MathUpgradeable.Rounding.Down);
     }
 
-    function _convertToAssets(uint256 shares, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
+    function _convertToAssets(
+        uint256 shares,
+        MathUpgradeable.Rounding rounding
+    ) internal view override returns (uint256) {
         (, uint256 _currentRate) = _getRate(lastEpochId, block.timestamp);
         return shares.mulDiv(_currentRate, RAY, rounding);
     }
 
-    function _convertToShares(uint256 assets, MathUpgradeable.Rounding rounding) internal view override returns (uint256) {
+    function _convertToShares(
+        uint256 assets,
+        MathUpgradeable.Rounding rounding
+    ) internal view override returns (uint256) {
         (, uint256 _currentRate) = _getRate(lastEpochId, block.timestamp);
         return assets.mulDiv(RAY, _currentRate, rounding);
     }
 
     function maxDeposit(address) public view override returns (uint256) {
-        return _convertToAssets(mintCap - totalSupply(), MathUpgradeable.Rounding.Down);
+        return
+            _convertToAssets(
+                mintCap - totalSupply(),
+                MathUpgradeable.Rounding.Down
+            );
     }
 
     function maxMint(address) public view override returns (uint256) {
         return mintCap - totalSupply();
     }
 
-    function deposit(uint256 assets, address receiver) public updateEpochId override returns (uint256) {
+    function deposit(
+        uint256 assets,
+        address receiver
+    ) public override updateEpochId returns (uint256) {
         return super.deposit(assets, receiver);
     }
 
-    function mint(uint256 shares, address receiver) public updateEpochId override returns (uint256){
+    function mint(
+        uint256 shares,
+        address receiver
+    ) public override updateEpochId returns (uint256) {
         return super.mint(shares, receiver);
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) public updateEpochId override returns (uint256) {
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) public override updateEpochId returns (uint256) {
         return super.withdraw(assets, receiver, owner);
     }
 
-    function redeem(uint256 shares, address receiver, address owner) public updateEpochId override returns (uint256) {
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) public override updateEpochId returns (uint256) {
         return super.redeem(shares, receiver, owner);
     }
 
-    function _beforeTokenTransfer(address from, address to, uint256 amount) internal whenNotPaused override {
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal override whenNotPaused {
         super._beforeTokenTransfer(from, to, amount);
     }
 
