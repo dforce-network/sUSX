@@ -983,8 +983,8 @@ describe("USX Saving", function () {
     });
   });
 
-  describe("Launch different bridges", async function () {
-    it("Deploy sUSX on different bridge", async function () {
+  describe("Launch different chains", async function () {
+    it("Deploy sUSX on different chain", async function () {
       // In the test case, owner is the bridger.
       let bridgeRole = await owner.sUSX.BRIDGER_ROLE();
       expect(await owner.sUSX.hasRole(bridgeRole, owner.address)).to.be.true;
@@ -1024,7 +1024,7 @@ describe("USX Saving", function () {
       ).deploy(...initArgs);
       await sUSX2.deployed();
 
-      // sUSX and sUSX2 are deployed on different bridges at different time,
+      // sUSX and sUSX2 are deployed on different chains at different time,
       // but they have the same USR config, so at the same time in the same epoch,
       // the rate should be the same.
       increaseTime(600); // 10 minutes later
