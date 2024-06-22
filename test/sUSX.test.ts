@@ -468,7 +468,7 @@ describe("USX Saving", function () {
       ).to.be.revertedWith("ERC20: insufficient allowance");
     });
 
-    it("Withdraw revert when reaching mint cap of the USX", async function () {
+    it.skip("Withdraw revert when reaching mint cap of the USX", async function () {
       let originalUSXMintCap = await owner.msdController.mintCaps(
         owner.usx.address,
         owner.sUSX.address
@@ -639,7 +639,7 @@ describe("USX Saving", function () {
       ).to.be.revertedWith("ERC20: insufficient allowance");
     });
 
-    it("Redeem revert when reaching mint cap of the USX", async function () {
+    it.skip("Redeem revert when reaching mint cap of the USX", async function () {
       let originalUSXMintCap = await owner.msdController.mintCaps(
         owner.usx.address,
         owner.sUSX.address

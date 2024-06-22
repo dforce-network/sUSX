@@ -235,6 +235,23 @@ contract sUSX is
         return mintCap - totalSupply();
     }
 
+    function _maxWithdrawAssets() internal view returns (uint256 _maxWithdraw) {
+        uint256 _msdCap = IMSDController(msdController).mintCaps(asset(), address(this));
+
+        if (_msdCap + totalStaked > totalUnstaked) {
+            // Will never underflow
+            unchecked { _maxWithdraw = _msdCap + totalStaked - totalUnstaked; }
+        }
+    }
+
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        return MathUpgradeable.min(_maxWithdrawAssets(), _convertToAssets(balanceOf(owner), MathUpgradeable.Rounding.Down));
+    }
+
+    function maxRedeem(address owner) public view override returns (uint256) {
+        return MathUpgradeable.min(_convertToShares(_maxWithdrawAssets(), MathUpgradeable.Rounding.Down), balanceOf(owner));
+    }
+
     function deposit(
         uint256 assets,
         address receiver

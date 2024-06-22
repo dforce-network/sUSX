@@ -106,4 +106,40 @@ describe("USX Saving", function () {
       owner.sUSX.outboundTransferShares(ownerShareAmount, owner.address)
     ).to.changeTokenBalance(owner.sUSX, owner.address, ownerShareAmount.mul(-1));
   });
+
+  it("M-01: Inaccurate maxWithdraw and maxRedeem Function Results", async function () {
+    let depositAmount = ethers.utils.parseEther("5000");
+    // Deposit
+    await owner.sUSX.deposit(depositAmount, owner.address);
+
+    // Get epoch 0 config
+    let usrConfig = await owner.sUSX.usrConfigs(0);
+    
+    // Only 1 epoch at here, pass the whole epoch to earn interest.
+    await setNextBlockTimestamp(usrConfig.endTime);
+    await increaseBlock(1);
+
+    // Calculate user max withdraw/redeem
+    let ownerShareBalance = await owner.sUSX.balanceOf(owner.address);
+    let calculatedOwnerMaxWithdrawAssets = await owner.sUSX.convertToAssets(ownerShareBalance);
+    let calculatedOwnerMaxRedeemShares = ownerShareBalance;
+
+    // When MSD mint cap is greater than sUSX mint cap, use user own balance
+    expect(await owner.sUSX.maxWithdraw(owner.address)).to.eq(calculatedOwnerMaxWithdrawAssets);
+    expect(await owner.sUSX.maxRedeem(owner.address)).to.eq(calculatedOwnerMaxRedeemShares);
+
+    // When MSD mint cap is less than sUSX mint cap, use MSD mint cap.
+    // Set MSD mint cap
+    let newMsdMintCap = ethers.utils.parseEther("1");
+    await owner.msdController._addMSD(
+      owner.usx.address,
+      [owner.sUSX.address],
+      [newMsdMintCap]
+    );
+
+    expect(await owner.sUSX.maxWithdraw(owner.address)).to.eq(depositAmount.add(newMsdMintCap));
+    // Max redeem shares should be calculated by MSD mint cap
+    calculatedOwnerMaxRedeemShares = depositAmount.add(newMsdMintCap).mul(RAY).div(await owner.sUSX.currentRate());
+    expect(await owner.sUSX.maxRedeem(owner.address)).to.eq(calculatedOwnerMaxRedeemShares);
+  });
 });
