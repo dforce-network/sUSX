@@ -143,7 +143,7 @@ contract sUSX is
      *         How to use this value can be found in `msdController` contract.
      * @dev Get the total amount of USX interest minted by sUSX.
      */
-    function totalMint() external view returns (uint256) {
+    function totalMint() public view returns (uint256) {
         if (totalUnstaked < totalStaked) {
             return 0;
         } else {
@@ -279,6 +279,10 @@ contract sUSX is
     ) external onlyRole(BRIDGER_ROLE) updateEpochId {
         uint256 assets = previewRedeem(shares);
         _burn(owner, assets, shares);
+        require(
+            totalMint() <= IMSDController(msdController).mintCaps(asset(), address(this)),
+            "outboundTransferShares: Exceed underlying mint cap!"
+        );
 
         emit WithdrawalInitiated(owner, assets, shares);
     }
