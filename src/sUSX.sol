@@ -224,15 +224,19 @@ contract sUSX is
     }
 
     function maxDeposit(address) public view override returns (uint256) {
+        uint256 _totalSupply = totalSupply();
+        if (mintCap < _totalSupply) return 0;
         return
             _convertToAssets(
-                mintCap - totalSupply(),
+                mintCap - _totalSupply,
                 MathUpgradeable.Rounding.Down
             );
     }
 
     function maxMint(address) public view override returns (uint256) {
-        return mintCap - totalSupply();
+        uint256 _totalSupply = totalSupply();
+        if (mintCap < _totalSupply) return 0;
+        return mintCap - _totalSupply;
     }
 
     function _maxWithdrawAssets() internal view returns (uint256 _maxWithdraw) {
