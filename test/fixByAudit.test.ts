@@ -31,7 +31,7 @@ const setup = deployments.createFixture(async () => {
   };
 });
 
-describe("USX Saving", function () {
+describe("Fix by audit report", function () {
   let allUsers: any;
   let owner: any;
   let user1: any;
@@ -142,4 +142,72 @@ describe("USX Saving", function () {
     calculatedOwnerMaxRedeemShares = depositAmount.add(newMsdMintCap).mul(RAY).div(await owner.sUSX.currentRate());
     expect(await owner.sUSX.maxRedeem(owner.address)).to.eq(calculatedOwnerMaxRedeemShares);
   });
+
+  it("M-02: Missing Function for Future Config Edits", async function () {
+    // Add a new epoch
+    let lastEpochConfig = await owner.sUSX.usrConfigs(await owner.sUSX.usrConfigsLength() - 1);
+
+    let newStartTime = lastEpochConfig.endTime.add(300); // 5 minutes later
+    let beforeNewEndTime = newStartTime.add(
+      lastEpochConfig.endTime.sub(lastEpochConfig.startTime)
+    );
+    let newUsr = lastEpochConfig.usr;
+    await owner.sUSX._addNewUsrConfig(newStartTime, beforeNewEndTime, newUsr);
+    lastEpochConfig = await owner.sUSX.usrConfigs(await owner.sUSX.usrConfigsLength() - 1);
+
+    // The last epoch does not start
+    expect(lastEpochConfig.endTime).to.gt(await getCurrentTime());
+
+    // 0.0 Update last epoch end time
+    let afterNewEndTime = lastEpochConfig.endTime.sub(500); // End five minutes early
+    await owner.sUSX._updateLastEpochEndTime(afterNewEndTime);
+
+    lastEpochConfig = await owner.sUSX.usrConfigs(await owner.sUSX.usrConfigsLength() - 1);
+    expect(lastEpochConfig.endTime).to.not.eq(beforeNewEndTime);
+    expect(lastEpochConfig.endTime).to.eq(afterNewEndTime);
+
+    // 0.1 Revert when new end time is not greater than the epoch start time
+    await expect(owner.sUSX._updateLastEpochEndTime(lastEpochConfig.startTime)).to.revertedWith(
+      "Invalid new epoch end time!"
+    );
+
+    // 0.2 Revert when new end time is not greater than the current time
+    await expect(owner.sUSX._updateLastEpochEndTime(await getCurrentTime())).to.revertedWith(
+      "Invalid new epoch end time!"
+    );
+
+    // 0.3 Revert when the last epoch has ended
+    await setNextBlockTimestamp(afterNewEndTime);
+    await increaseBlock(1);
+    await expect(owner.sUSX._updateLastEpochEndTime(afterNewEndTime)).to.revertedWith(
+      "Last epoch has ended!"
+    );
+
+    // Add a new epoch to delete
+    newStartTime = lastEpochConfig.endTime.add(300); // 5 minutes later
+    beforeNewEndTime = newStartTime.add(
+      lastEpochConfig.endTime.sub(lastEpochConfig.startTime)
+    );
+    newUsr = lastEpochConfig.usr;
+    await owner.sUSX._addNewUsrConfig(newStartTime, beforeNewEndTime, newUsr);
+
+    // 1.0 Delete last epoch
+    let beforeEpochLength = await owner.sUSX.usrConfigsLength();
+    await owner.sUSX._deleteLastEpoch();
+    expect(await owner.sUSX.usrConfigsLength()).to.eq(beforeEpochLength.sub(1));
+
+    // Add a new epoch to delete
+    newStartTime = lastEpochConfig.endTime.add(300); // 5 minutes later
+    beforeNewEndTime = newStartTime.add(
+      lastEpochConfig.endTime.sub(lastEpochConfig.startTime)
+    );
+    newUsr = lastEpochConfig.usr;
+    await owner.sUSX._addNewUsrConfig(newStartTime, beforeNewEndTime, newUsr);
+
+    // 1.1 Revert when the last epoch has started
+    await setNextBlockTimestamp(newStartTime);
+    await increaseBlock(1);
+    await expect(owner.sUSX._deleteLastEpoch()).to.revertedWith("Last epoch has started!");
+  });
+
 });
