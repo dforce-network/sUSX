@@ -79,6 +79,9 @@ contract sUSX is
         uint256 _initialUsr,
         uint256 _initialRate
     ) public initializer {
+        require(address(_usx) != address(0), "Invalid USX address!");
+        require(_msdController != address(0), "Invalid MSD Controller address!");
+
         __Ownable2Step_init();
         __Pausable_init();
         __AccessControl_init();
@@ -200,7 +203,7 @@ contract sUSX is
         _burn(owner, assets, shares);
         IMSDController(msdController).mintMSD(asset(), receiver, assets);
 
-        emit Withdraw(msg.sender, receiver, owner, assets, shares);
+        emit Withdraw(caller, receiver, owner, assets, shares);
     }
 
     function totalAssets() public view override returns (uint256) {

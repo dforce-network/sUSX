@@ -40,7 +40,10 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
     event DeleteLastEpoch(uint256 indexed deletedEpochId);
 
     modifier updateEpochId() {
-        (lastEpochId, ) = _getRate(lastEpochId, block.timestamp);
+        (uint256 _newEpochId, ) = _getRate(lastEpochId, block.timestamp);
+        if (_newEpochId > lastEpochId) {
+            lastEpochId = _newEpochId;
+        }
         _;
     }
 
@@ -50,8 +53,6 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 _initialUsr,
         uint256 _initialRate
     ) internal onlyInitializing {
-        __Ownable2Step_init();
-
         lastEpochId = 0;
         _addNewUsrConfigInternal(
             _initialUsrStartTime,
@@ -235,8 +236,8 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         USRConfig memory _newerUsr = usrConfigs[_currentEpochId];
 
         if (
-            block.timestamp > _newerUsr.startTime &&
-            block.timestamp < _newerUsr.endTime
+            block.timestamp >= _newerUsr.startTime &&
+            block.timestamp <= _newerUsr.endTime
         ) {
             _apy = _newerUsr.usr._rpow(365 days, RAY);
             _startTime = _newerUsr.startTime;
