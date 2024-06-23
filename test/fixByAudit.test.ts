@@ -210,4 +210,35 @@ describe("Fix by audit report", function () {
     await expect(owner.sUSX._deleteLastEpoch()).to.revertedWith("Last epoch has started!");
   });
 
+  it("M-05: Potential Deposit Blockage", async function () {
+    let depositAmount = ethers.utils.parseEther("5000");
+    // Deposit
+    await owner.sUSX.deposit(depositAmount, owner.address);
+
+    // Get epoch 0 config
+    let usrConfig = await owner.sUSX.usrConfigs(0);
+    
+    // Only 1 epoch at here, pass the whole epoch to make rate is greater than 1.
+    await setNextBlockTimestamp(usrConfig.endTime);
+    await increaseBlock(1);
+
+    // Do not consider `mintCap`
+    let calculatedMaxShares = (await owner.sUSX.mintCap()).sub(await owner.sUSX.totalSupply())
+    let calculatedMaxDepositAmount = await owner.sUSX.convertToAssets(calculatedMaxShares);
+    let calculatedMaxMintAmount = calculatedMaxShares;
+
+    // When the `mintCap` is greater than `totalSupply` in the sUSX
+    let maxDepositAmount = await owner.sUSX.maxDeposit(owner.address);
+    let maxMintAmount = await owner.sUSX.maxMint(owner.address);
+
+    expect(maxDepositAmount).to.eq(calculatedMaxDepositAmount);
+    expect(maxMintAmount).to.eq(calculatedMaxMintAmount);
+
+    // When the `mintCap` is less than `totalSupply` in the sUSX
+    await owner.sUSX._setMintCap(depositAmount.div(2));
+    expect(await owner.sUSX.mintCap()).to.lt(await owner.sUSX.totalSupply());
+
+    expect(await owner.sUSX.maxDeposit(owner.address)).to.eq(0);
+    expect(await owner.sUSX.maxMint(owner.address)).to.eq(0);
+  });
 });
