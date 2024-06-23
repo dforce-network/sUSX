@@ -34,6 +34,10 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         uint256 usr,
         uint256 startRate
     );
+    // Event when update epoch end time.
+    event UpdateEpochEndTime(uint256 indexed epochId, uint256 indexed oldEndTime, uint256 indexed newEndTime);
+    // Event when delete the last epoch
+    event DeleteLastEpoch(uint256 indexed deletedEpochId);
 
     modifier updateEpochId() {
         (lastEpochId, ) = _getRate(lastEpochId, block.timestamp);
@@ -121,6 +125,43 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
             _newUsr,
             _newRate
         );
+    }
+
+    /**
+     * @notice Only for owner, and only update the last epoch end time.
+     * @dev Update the last epoch end time.
+     * @param _newEpochEndTime New epoch end time to update.
+     */
+    function _updateLastEpochEndTime(uint256 _newEpochEndTime) external onlyOwner {
+        uint256 _lastEpochId = usrConfigs.length - 1;
+        USRConfig storage _usrConfig = usrConfigs[_lastEpochId];
+
+        require(block.timestamp < _usrConfig.endTime, "Last epoch has ended!");
+        require(
+            _newEpochEndTime > _usrConfig.startTime &&
+            _newEpochEndTime > block.timestamp,
+            "Invalid new epoch end time!"
+        );
+
+        uint256 _oldEpochEndTime = _usrConfig.endTime;
+        _usrConfig.endTime = _newEpochEndTime;
+
+        emit UpdateEpochEndTime(_lastEpochId, _oldEpochEndTime, _newEpochEndTime);
+    }
+
+    /**
+     * @notice Only for owner, and only delete the last epoch.
+     * @dev Delete the last epoch config.
+     */
+    function _deleteLastEpoch() external onlyOwner {
+        uint256 _lastEpochId = usrConfigs.length - 1;
+        USRConfig storage _usrConfig = usrConfigs[_lastEpochId];
+
+        require(block.timestamp < _usrConfig.startTime, "Last epoch has started!");
+
+        usrConfigs.pop();
+
+        emit DeleteLastEpoch(_lastEpochId);
     }
 
     /**
