@@ -79,6 +79,9 @@ contract sUSX is
         uint256 _initialUsr,
         uint256 _initialRate
     ) public initializer {
+        require(address(_usx) != address(0), "Invalid USX address!");
+        require(_msdController != address(0), "Invalid MSD Controller address!");
+
         __Ownable2Step_init();
         __Pausable_init();
         __AccessControl_init();
@@ -143,7 +146,7 @@ contract sUSX is
      *         How to use this value can be found in `msdController` contract.
      * @dev Get the total amount of USX interest minted by sUSX.
      */
-    function totalMint() external view returns (uint256) {
+    function totalMint() public view returns (uint256) {
         if (totalUnstaked < totalStaked) {
             return 0;
         } else {
@@ -200,7 +203,7 @@ contract sUSX is
         _burn(owner, assets, shares);
         IMSDController(msdController).mintMSD(asset(), receiver, assets);
 
-        emit Withdraw(msg.sender, receiver, owner, assets, shares);
+        emit Withdraw(caller, receiver, owner, assets, shares);
     }
 
     function totalAssets() public view override returns (uint256) {
@@ -224,15 +227,36 @@ contract sUSX is
     }
 
     function maxDeposit(address) public view override returns (uint256) {
+        uint256 _totalSupply = totalSupply();
+        if (mintCap < _totalSupply) return 0;
         return
             _convertToAssets(
-                mintCap - totalSupply(),
+                mintCap - _totalSupply,
                 MathUpgradeable.Rounding.Down
             );
     }
 
     function maxMint(address) public view override returns (uint256) {
-        return mintCap - totalSupply();
+        uint256 _totalSupply = totalSupply();
+        if (mintCap < _totalSupply) return 0;
+        return mintCap - _totalSupply;
+    }
+
+    function _maxWithdrawAssets() internal view returns (uint256 _maxWithdraw) {
+        uint256 _msdCap = IMSDController(msdController).mintCaps(asset(), address(this));
+
+        if (_msdCap + totalStaked > totalUnstaked) {
+            // Will never underflow
+            unchecked { _maxWithdraw = _msdCap + totalStaked - totalUnstaked; }
+        }
+    }
+
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        return MathUpgradeable.min(_maxWithdrawAssets(), _convertToAssets(balanceOf(owner), MathUpgradeable.Rounding.Down));
+    }
+
+    function maxRedeem(address owner) public view override returns (uint256) {
+        return MathUpgradeable.min(_convertToShares(_maxWithdrawAssets(), MathUpgradeable.Rounding.Down), balanceOf(owner));
     }
 
     function deposit(
@@ -279,6 +303,10 @@ contract sUSX is
     ) external onlyRole(BRIDGER_ROLE) updateEpochId {
         uint256 assets = previewRedeem(shares);
         _burn(owner, assets, shares);
+        require(
+            totalMint() <= IMSDController(msdController).mintCaps(asset(), address(this)),
+            "outboundTransferShares: Exceed underlying mint cap!"
+        );
 
         emit WithdrawalInitiated(owner, assets, shares);
     }

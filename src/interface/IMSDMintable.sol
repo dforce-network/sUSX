@@ -2,6 +2,7 @@
 pragma solidity 0.8.10;
 
 interface IMSDController {
+    function mintCaps(address token, address minter) external view returns (uint256);
     function mintMSD(address token, address usr, uint256 wad) external;
 }
 
