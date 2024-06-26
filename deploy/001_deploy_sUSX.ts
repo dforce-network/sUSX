@@ -88,7 +88,8 @@ const deployFunction: DeployFunction = async function (
       [ethers.utils.parseEther("200000000")] // caps
     );
   } else {
-    await deploy(hre, "sUSX", "sUSX", [], true, "initialize", initArgs);
+    await deploy(hre, "sUSX", "sUSX", [...initArgs
+    ], true, "initialize", initArgs, false);
   }
 };
 
