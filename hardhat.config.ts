@@ -48,8 +48,19 @@ const config: HardhatUserConfig = {
       accounts: accounts("mainnet"),
     },
     mainnet: {
-      url: node_url("mainnet"),
-      accounts: accounts("mainnet"),
+      url: "http://localhost:24012/rpc"
+    },
+    arbitrum: {
+      url: "http://localhost:24012/rpc"
+    },
+    optimism: {
+      url: "http://localhost:24012/rpc"
+    },
+    base: {
+      url: "http://localhost:24012/rpc"
+    },
+    bsc: {
+      url: "http://localhost:24012/rpc"
     },
     sepolia: {
       url: node_url("sepolia"),
