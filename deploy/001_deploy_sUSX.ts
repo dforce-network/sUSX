@@ -1,6 +1,7 @@
 import {HardhatRuntimeEnvironment} from "hardhat/types";
 import {DeployFunction} from "hardhat-deploy/types";
 import {deploy, execute} from "../utils/utils";
+import { network } from "hardhat";
 
 const deployFunction: DeployFunction = async function (
   hre: HardhatRuntimeEnvironment
@@ -12,11 +13,10 @@ const deployFunction: DeployFunction = async function (
   let proxyAdmin;
   let usx;
   let msdController;
-  let mintCap = ethers.utils.parseEther("100000000"); // sUSX
-  let startTime = Math.floor(Date.now() / 1000) + 300; // delay 5 minutes
-  let endTime = startTime + 60 * 60 * 24 * 365; // delay 1 day
-  let usr = ethers.BigNumber.from("1000000003022265980097387650"); // Math.pow(1.1, 1/(365*24*3600)) * 10 ** 27;
-  // let usr = ethers.BigNumber.from("999999996659039970769164170"); // Math.pow(0.9, 1/(365*24*3600)) * 10 ** 27;
+  let mintCap; // sUSX
+  let startTime = 1719489600;
+  let endTime = 1726488000;
+  let usr = ethers.BigNumber.from("1000000004431822129783702592"); // Math.pow(1.15, 1/(365*24*3600)) * 10 ** 27;
   let initialRate = ethers.BigNumber.from("10").pow(27);
 
   if (!hre.network.live) {
@@ -42,8 +42,22 @@ const deployFunction: DeployFunction = async function (
     msdController = await deployments.get("msdController");
   }
 
+  if (network.name == "mainnet") {
+    mintCap = ethers.utils.parseEther("3000000");
+  } else if (network.name == "arbitrum") {
+    mintCap = ethers.utils.parseEther("4000000");
+  } else if (network.name == "optimism") {
+    mintCap = ethers.utils.parseEther("1000000");
+  } else if (network.name == "base") {
+    mintCap = ethers.utils.parseEther("1000000");
+  } else if (network.name == "bsc") {
+    mintCap = ethers.utils.parseEther("1000000");
+  } else {
+    throw (network.name, " does not support!");
+  }
+
   let initArgs = [
-    "USX Savings",
+    "Saving USX",
     "sUSX",
     usx.address,
     msdController.address,
