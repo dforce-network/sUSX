@@ -48,19 +48,24 @@ const config: HardhatUserConfig = {
       accounts: accounts("mainnet"),
     },
     mainnet: {
-      url: "http://localhost:24012/rpc"
+      url: "http://localhost:24012/rpc",
+      timeout: 200000,
     },
     arbitrum: {
-      url: "http://localhost:24012/rpc"
+      url: "http://localhost:24012/rpc",
+      timeout: 200000,
     },
     optimism: {
-      url: "http://localhost:24012/rpc"
+      url: "http://localhost:24012/rpc",
+      timeout: 200000,
     },
     base: {
-      url: "http://localhost:24012/rpc"
+      url: "http://localhost:24012/rpc",
+      timeout: 200000,
     },
     bsc: {
-      url: "http://localhost:24012/rpc"
+      url: "http://localhost:24012/rpc",
+      timeout: 200000,
     },
     sepolia: {
       url: node_url("sepolia"),
