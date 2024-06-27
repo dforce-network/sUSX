@@ -31,3 +31,5 @@ lib/forge-std
 
 .vscode/*
 !*.default
+
+.env
