@@ -227,6 +227,18 @@ abstract contract USR is Initializable, Ownable2StepUpgradeable {
         return usrConfigs.length;
     }
 
+    function currentUsr() external view returns (uint256 _usr) {
+        (uint256 _currentEpochId, ) = _getRate(lastEpochId, block.timestamp);
+        USRConfig memory _newerUsr = usrConfigs[_currentEpochId];
+
+        if (
+            block.timestamp >= _newerUsr.startTime &&
+            block.timestamp <= _newerUsr.endTime
+        ) {
+            _usr = _newerUsr.usr;
+        }
+    }
+
     function currentAPY()
         external
         view
