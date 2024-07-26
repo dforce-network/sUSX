@@ -9,6 +9,7 @@ generated
 deployments/localhost
 deployments/hardhat
 deployments/lan
+deployments/tenderly
 _metadata
 
 # hardhat
