@@ -79,6 +79,10 @@ const config: HardhatUserConfig = {
       url: node_url("goerli"),
       accounts: accounts("goerli"),
     },
+    tenderly: {
+      url: process.env.TENDERLY_KEY,
+      accounts: [`0x${process.env.PRIVATE_KEY}`],
+    },
   }),
   paths: {
     sources: "src",
